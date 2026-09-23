@@ -1,0 +1,455 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+    <div class="profile-tabs">
+        {% if user.role == 'admin' %}
+        <a href="{{ url_for('profiles', tab='staff') }}"
+           class="profile-tab {% if active_tab == 'staff' %}active{% endif %}">Staff</a>
+        {% endif %}
+        <a href="{{ url_for('profiles', tab='students') }}"
+           class="profile-tab {% if active_tab == 'students' %}active{% endif %}">Students</a>
+    </div>
+
+    <div class="profiles-toolbar">
+        <div class="profiles-title">
+            <p class="profiles-heading">All {{ plural_label }}</p>
+            <span class="count-badge">{{ total_count }}</span>
+        </div>
+
+        <div class="profiles-actions">
+            <form class="search-box" method="get" action="{{ url_for('profiles') }}">
+                <i class="ti ti-search"></i>
+                <input type="hidden" name="tab" value="{{ active_tab }}">
+                {% if active_tab == 'students' and class_filter %}
+                    <input type="hidden" name="class" value="{{ class_filter }}">
+                {% endif %}
+                {% if status_filter %}
+                    <input type="hidden" name="status" value="{{ status_filter }}">
+                {% endif %}
+                {% if sort != 'created_desc' %}
+                    <input type="hidden" name="sort" value="{{ sort }}">
+                {% endif %}
+                <input type="search" name="q" value="{{ search_query }}" placeholder="Search by name">
+            </form>
+            <div class="filter-wrap">
+                <button type="button" class="icon-btn filter-btn" id="filterButton" title="Filter">
+                    <i class="ti ti-filter"></i>
+                    {% if (active_tab == 'students' and class_filter) or status_filter or search_query or sort != 'created_desc' %}
+                        <span class="filter-dot"></span>
+                    {% endif %}
+                </button>
+
+                <div class="filter-panel" id="filterPanel">
+                    <form class="filter-form" method="get" action="{{ url_for('profiles') }}">
+                        <input type="hidden" name="tab" value="{{ active_tab }}">
+                        {% if search_query %}
+                            <input type="hidden" name="q" value="{{ search_query }}">
+                        {% endif %}
+
+                        {% if active_tab == 'students' %}
+                        <div class="form-group">
+                            <label class="form-label" for="filter-class">Class</label>
+                            <select class="form-input" id="filter-class" name="class">
+                                <option value="">All classes</option>
+                                {% for c in available_classes %}
+                                <option value="{{ c }}" {% if class_filter == c %}selected{% endif %}>{{ c }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% endif %}
+
+                        <div class="form-group">
+                            <label class="form-label" for="filter-status">Status</label>
+                            <select class="form-input" id="filter-status" name="status">
+                                <option value="">All statuses</option>
+                                {% for s in status_options %}
+                                <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>{{ s }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label" for="filter-sort">Date created</label>
+                            <select class="form-input" id="filter-sort" name="sort">
+                                <option value="created_desc" {% if sort == 'created_desc' %}selected{% endif %}>Newest first</option>
+                                <option value="created_asc" {% if sort == 'created_asc' %}selected{% endif %}>Oldest first</option>
+                            </select>
+                        </div>
+
+                        <div class="form-actions">
+                            <a class="secondary-btn" href="{{ url_for('profiles', tab=active_tab) }}">Reset</a>
+                            <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Apply</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <button type="button" class="secondary-btn"
+                    onclick="openModal('{{ 'staffBulkUploadModal' if active_tab == 'staff' else 'studentBulkUploadModal' }}')">
+                <i class="ti ti-upload"></i> Upload in bulk
+            </button>
+            <button type="button" class="primary-btn"
+                    onclick="openModal('{{ 'staffModal' if active_tab == 'staff' else 'studentModal' }}')">
+                <i class="ti ti-plus"></i> New {{ singular_label }}
+            </button>
+        </div>
+    </div>
+
+    <div class="profiles-table-wrap">
+        <table class="profiles-table">
+            <thead>
+                <tr>
+                    <th>Names</th>
+                    {% if active_tab == 'students' %}<th>Class</th>{% endif %}
+                    <th>Status</th>
+                    <th>Created on</th>
+                    <th class="col-action">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in records %}
+                <tr>
+                    <td class="name-cell">{{ r.name }}</td>
+                    {% if active_tab == 'students' %}<td>{{ r.class_name }}</td>{% endif %}
+                    <td>
+                        <span class="status-badge {% if r.status == 'Active' %}status-active{% else %}status-pending{% endif %}">
+                            {{ r.status }}
+                        </span>
+                    </td>
+                    <td class="date-cell">{{ r.created_on }}</td>
+                    <td class="col-action">
+                        <div class="row-actions">
+                        {% if active_tab == 'staff' %}
+                            <button type="button" class="icon-btn" title="View"
+                                    onclick='openStaffView({{ r|tojson }})'>
+                                <i class="ti ti-eye"></i>
+                            </button>
+                            <button type="button" class="icon-btn" title="Edit"
+                                    onclick='openStaffEdit({{ r|tojson }})'>
+                                <i class="ti ti-edit"></i>
+                            </button>
+                            <button type="button" class="icon-btn icon-btn-danger" title="Delete"
+                                    onclick='openDeleteConfirm({{ ("staff-delete-form-" ~ r.id)|tojson }}, {{ r.name|tojson }})'>
+                                <i class="ti ti-trash"></i>
+                            </button>
+                            <form id="staff-delete-form-{{ r.id }}"
+                                  action="{{ url_for('delete_staff', staff_id=r.id) }}" method="post" hidden></form>
+                        {% else %}
+                            <button type="button" class="icon-btn" title="View"
+                                    onclick='openStudentView({{ r|tojson }})'>
+                                <i class="ti ti-eye"></i>
+                            </button>
+                            <button type="button" class="icon-btn" title="Edit"
+                                    onclick='openStudentEdit({{ r|tojson }})'>
+                                <i class="ti ti-edit"></i>
+                            </button>
+                            <button type="button" class="icon-btn icon-btn-danger" title="Delete"
+                                    onclick='openDeleteConfirm({{ ("student-delete-form-" ~ r.id)|tojson }}, {{ r.name|tojson }})'>
+                                <i class="ti ti-trash"></i>
+                            </button>
+                            <form id="student-delete-form-{{ r.id }}"
+                                  action="{{ url_for('delete_student', student_id=r.id) }}" method="post" hidden></form>
+                        {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include "_pagination.html" %}
+
+    <!-- New Staff modal -->
+    <div class="modal-overlay" id="staffModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">New staff</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('staffModal')"></i>
+            </div>
+            <p class="form-subheading">The account is created as pending — status shows "Account not activated yet" until they log in for the first time.</p>
+
+            <form class="modal-form" action="{{ url_for('new_staff') }}" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="staff-name">Full name</label>
+                    <input class="form-input" type="text" id="staff-name" name="name" placeholder="e.g. Nakato Diana">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="staff-email">Email</label>
+                    <input class="form-input" type="email" id="staff-email" name="email" placeholder="name@school.org">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="staff-phone">Phone <span class="optional-tag">optional</span></label>
+                    <input class="form-input" type="text" id="staff-phone" name="phone" placeholder="+256 7...">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="staff-role">Role</label>
+                    <select class="form-input" id="staff-role" name="role">
+                        <option value="teacher">Teacher</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('staffModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Add staff</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- New Student modal -->
+    <div class="modal-overlay" id="studentModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">New student</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('studentModal')"></i>
+            </div>
+            <p class="form-subheading">Status shows "Inactive" until the student is enrolled in a class under Academics.</p>
+
+            <form class="modal-form" action="{{ url_for('new_student') }}" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="student-name">Full name</label>
+                    <input class="form-input" type="text" id="student-name" name="name" placeholder="e.g. Nabirye Grace">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="student-gender">Gender</label>
+                    <select class="form-input" id="student-gender" name="gender">
+                        <option value="">Select gender</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="student-dob">Date of birth</label>
+                    <input class="form-input" type="date" id="student-dob" name="date_of_birth">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="student-lin">LIN <span class="optional-tag">optional at registration</span></label>
+                    <input class="form-input" type="text" id="student-lin" name="lin" placeholder="Leave blank if not yet available">
+                    <p class="form-hint">Can be added or corrected later from the student's profile.</p>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('studentModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Register student</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Staff: bulk upload -->
+    <div class="modal-overlay" id="staffBulkUploadModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Upload staff in bulk</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('staffBulkUploadModal')"></i>
+            </div>
+            <p class="form-subheading">Start from the template, fill in a row per staff member, then upload it below.</p>
+
+            <div class="form-group">
+                <a class="secondary-btn" href="{{ url_for('download_staff_upload_template') }}">
+                    <i class="ti ti-download"></i> Download template
+                </a>
+            </div>
+
+            <form id="staffBulkUploadForm" action="{{ url_for('bulk_upload_staff') }}" method="post" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label class="form-label" for="staff-bulk-file">CSV file</label>
+                    <input class="form-input" type="file" id="staff-bulk-file" name="file" accept=".csv">
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('staffBulkUploadModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-upload"></i> Upload and save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Student: bulk upload -->
+    <div class="modal-overlay" id="studentBulkUploadModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Upload students in bulk</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('studentBulkUploadModal')"></i>
+            </div>
+            <p class="form-subheading">Start from the template, fill in a row per student, then upload it below. Registration numbers are assigned automatically.</p>
+
+            <div class="form-group">
+                <a class="secondary-btn" href="{{ url_for('download_student_upload_template') }}">
+                    <i class="ti ti-download"></i> Download template
+                </a>
+            </div>
+
+            <form id="studentBulkUploadForm" action="{{ url_for('bulk_upload_students') }}" method="post" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label class="form-label" for="student-bulk-file">CSV file</label>
+                    <input class="form-input" type="file" id="student-bulk-file" name="file" accept=".csv">
+                    <p class="form-hint">Date of birth accepts DD-MM-YYYY, D/MM/YYYY, YYYY-MM-DD and most other common date styles, single-digit days included. Fill in LIN where you have it — it's used to skip a student who's already on record, so the same file can be re-uploaded safely.</p>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('studentBulkUploadModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-upload"></i> Upload and save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Shared: bulk upload results summary -->
+    <div class="modal-overlay" id="bulkUploadSummaryModal">
+        <div class="modal-dialog modal-dialog-narrow">
+            <div class="modal-header">
+                <p class="form-heading">Upload complete</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('bulkUploadSummaryModal')"></i>
+            </div>
+            <div class="view-rows" id="bulkUploadSummaryBody"></div>
+            <div class="form-actions">
+                <button type="button" class="primary-btn" id="bulkUploadSummaryBtn"><i class="ti ti-check"></i> Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Staff: view details -->
+    <div class="modal-overlay" id="staffViewModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Staff details</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('staffViewModal')"></i>
+            </div>
+            <div class="view-rows" id="staffViewBody"></div>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('staffViewModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Staff: edit -->
+    <div class="modal-overlay" id="staffEditModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Edit staff</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('staffEditModal')"></i>
+            </div>
+
+            <form class="modal-form" id="staffEditForm" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="staff-edit-name">Full name</label>
+                    <input class="form-input" type="text" id="staff-edit-name" name="name">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="staff-edit-email">Email</label>
+                    <input class="form-input" type="email" id="staff-edit-email" name="email">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="staff-edit-phone">Phone <span class="optional-tag">optional</span></label>
+                    <input class="form-input" type="text" id="staff-edit-phone" name="phone">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="staff-edit-role">Role</label>
+                    <select class="form-input" id="staff-edit-role" name="role">
+                        <option value="teacher">Teacher</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('staffEditModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Student: view details -->
+    <div class="modal-overlay" id="studentViewModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Student details</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('studentViewModal')"></i>
+            </div>
+            <div class="view-rows" id="studentViewBody"></div>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('studentViewModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Student: edit -->
+    <div class="modal-overlay" id="studentEditModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Edit student</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('studentEditModal')"></i>
+            </div>
+
+            <form class="modal-form" id="studentEditForm" method="post">
+                <input type="hidden" id="student-edit-registration-number" name="registration_number">
+                <div class="form-group">
+                    <label class="form-label" for="student-edit-name">Full name</label>
+                    <input class="form-input" type="text" id="student-edit-name" name="name">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="student-edit-gender">Gender</label>
+                    <select class="form-input" id="student-edit-gender" name="gender">
+                        <option value="">Select gender</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="student-edit-dob">Date of birth</label>
+                    <input class="form-input" type="date" id="student-edit-dob" name="date_of_birth">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="student-edit-lin">LIN <span class="optional-tag">optional</span></label>
+                    <input class="form-input" type="text" id="student-edit-lin" name="lin">
+                    <p class="form-hint">Class enrollment is managed under Academics, not here.</p>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('studentEditModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Shared delete confirmation -->
+    <div class="modal-overlay" id="confirmDeleteModal">
+        <div class="modal-dialog modal-dialog-narrow">
+            <div class="modal-header">
+                <p class="form-heading">Remove record?</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('confirmDeleteModal')"></i>
+            </div>
+            <p class="form-subheading" id="confirmDeleteText"></p>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('confirmDeleteModal')">Cancel</button>
+                <button type="button" class="danger-btn" id="confirmDeleteBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ url_for('static', filename='js/profile-filter.js') }}"></script>
+    <script>
+        const STAFF_EDIT_URL_BASE = "/profiles/staff";
+        const STUDENT_EDIT_URL_BASE = "/profiles/students";
+    </script>
+    <script src="{{ url_for('static', filename='js/profile-actions.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/profile-bulk-upload.js') }}"></script>
+{% endblock %}

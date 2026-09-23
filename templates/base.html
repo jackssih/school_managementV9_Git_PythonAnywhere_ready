@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ user.theme|default('light') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ school_name }}{% if page_title %} — {{ page_title }}{% endif %}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="app-shell">
+    <div class="app-frame">
+        <aside class="sidebar" id="appSidebar">
+            <div class="sidebar-brand">
+                <div class="brand-mark">
+                    {% if school_logo_url %}<img src="{{ school_logo_url }}" alt="{{ school_name }} logo">{% else %}<span>S</span>{% endif %}
+                </div>
+                <div class="brand-copy">
+                    <strong>{{ school_name }}</strong>
+                    <span>School Management</span>
+                </div>
+                <button class="sidebar-collapse" type="button" aria-label="Toggle sidebar"><i class="ti ti-layout-sidebar-left-collapse"></i></button>
+            </div>
+
+            <nav class="sidebar-nav" aria-label="Main navigation">
+                {% for item in nav_items %}
+                    {% set icon_map = {
+                        'home':'ti-layout-dashboard', 'profiles':'ti-users', 'academics':'ti-school',
+                        'grades':'ti-notes', 'attendance':'ti-calendar-check', 'reports':'ti-file-analytics',
+                        'timetable':'ti-calendar-time', 'events':'ti-calendar-event'
+                    } %}
+                    <a href="{{ url_for(item.endpoint) }}" class="side-nav-link {% if item.endpoint == active_endpoint %}active{% endif %}">
+                        <i class="ti {{ icon_map.get(item.endpoint, 'ti-circle') }}"></i>
+                        <span>{{ item.label }}</span>
+                    </a>
+                {% endfor %}
+            </nav>
+
+            <div class="sidebar-promo">
+                <div>
+                    <span>Let's make</span>
+                    <strong>education</strong>
+                    <span>better together</span>
+                </div>
+                <i class="ti ti-books"></i>
+            </div>
+
+            <div class="sidebar-bottom">
+                <a href="{{ url_for('profile') }}" class="side-nav-link"><i class="ti ti-settings"></i><span>Settings</span></a>
+                <a href="{{ url_for('logout') }}" class="side-nav-link"><i class="ti ti-logout"></i><span>Log out</span></a>
+            </div>
+        </aside>
+
+        <div class="main-shell">
+            <header class="topbar">
+                <div class="topbar-title">
+                    <div class="topbar-title-row">
+                        <button class="mobile-sidebar-toggle" id="mobileSidebarToggle" type="button" aria-label="Open navigation menu" aria-expanded="false" aria-controls="appSidebar">
+                            <i class="ti ti-menu-2"></i>
+                        </button>
+                        <h1>{{ page_title or 'Dashboard' }}</h1>
+                        <div class="term-switcher" id="termSwitcher">
+                            <button type="button" class="term-pill" id="termButton">
+                                <i class="ti ti-calendar-event"></i><span>{{ current_term.name if current_term else 'No active term' }}</span><i class="ti ti-chevron-down"></i>
+                            </button>
+                            <div class="term-menu" id="termMenu">
+                                <form class="term-form" action="{{ url_for('switch_term') }}" method="post">
+                                    <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                                    <label class="form-label" for="termSelect">Change term</label>
+                                    <select class="form-input" id="termSelect" name="term_id">
+                                        {% for term in terms %}<option value="{{ term.id }}" {% if current_term and current_term.id == term.id %}selected{% endif %}>{{ term.name }}</option>{% endfor %}
+                                    </select>
+                                    <button type="submit" class="primary-btn term-submit"><i class="ti ti-check"></i> Save and Switch</button>
+                                </form>
+                                <div class="profile-menu-divider"></div>
+                                <div class="term-menu-dates"><p class="form-label">Set term dates</p><div class="term-menu-year-nav"><button type="button" class="link-btn" id="termYearPrev"><i class="ti ti-chevron-left"></i></button><span class="term-menu-year" id="termYearLabel"></span><button type="button" class="link-btn" id="termYearNext"><i class="ti ti-chevron-right"></i></button></div><div class="term-menu-options" id="termMenuOptions"></div></div>
+                            </div>
+                        </div>
+                    </div>
+                    <span>{{ current_date_label or '' }}</span>
+                </div>
+                <div class="topbar-search" id="globalSearchWrap"><i class="ti ti-search"></i><input id="globalSearchInput" type="search" placeholder="Search classes or students..." aria-label="Search classes or students"><div class="global-search-results" id="globalSearchResults"></div></div>
+                <div class="topbar-actions">
+                    <button class="circle-btn theme-light-btn" type="button" title="Light mode" aria-label="Light mode"><i class="ti ti-sun"></i></button>
+                    <button class="circle-btn theme-dark-btn" type="button" title="Dark mode" aria-label="Dark mode"><i class="ti ti-moon"></i></button>
+                    <div class="profile-badge" id="profileBadge">
+                        <div class="avatar">
+                            {% if user.photo_url %}<img src="{{ user.photo_url }}" alt="{{ user.name }}">{% else %}{{ user.initials }}{% endif %}
+                        </div>
+                        <div class="profile-copy"><strong>{{ user.name }}</strong><span>{{ 'Administrator' if user.role == 'admin' else 'Teacher' }}</span></div>
+                        <i class="ti ti-chevron-down"></i>
+                        <div class="profile-menu" id="profileMenu">
+                            <a href="{{ url_for('profile') }}" class="profile-menu-item"><i class="ti ti-user"></i> Profile</a>
+                            {% if user.role == 'admin' %}<a href="{{ url_for('settings_school') }}" class="profile-menu-item"><i class="ti ti-settings"></i> Settings</a>{% endif %}
+                            <a href="{{ url_for('change_password') }}" class="profile-menu-item"><i class="ti ti-lock"></i> Change password</a>
+                            <div class="profile-menu-divider"></div>
+                            <a href="{{ url_for('logout') }}" class="profile-menu-item"><i class="ti ti-logout"></i> Logout</a>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+
+            <main class="content">
+                {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-stack">{% for category, message in messages %}<div class="flash flash-{{ category }}">{% if category == 'success' %}<i class="ti ti-circle-check"></i>{% elif category == 'error' %}<i class="ti ti-alert-circle"></i>{% endif %}<span>{{ message }}</span></div>{% endfor %}</div>{% endif %}{% endwith %}
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+</div>
+<div class="sidebar-overlay" id="sidebarOverlay" aria-hidden="true"></div>
+
+<div class="modal-overlay" id="termDatesModal"><div class="modal-dialog"><div class="modal-header"><p class="form-heading" id="termDatesTitle">Term dates</p><i class="ti ti-x modal-close" onclick="closeModal('termDatesModal')"></i></div><p class="form-subheading">Used to work out the active term automatically, and to label reports and timetables.</p><form class="term-dates-form" action="{{ url_for('save_term_dates') }}" method="post"><input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}"><input type="hidden" id="termDatesYear" name="year"><input type="hidden" id="termDatesNumber" name="term_number"><div class="form-group"><label class="form-label" for="termDatesStart">Start date</label><input class="form-input" type="date" id="termDatesStart" name="start_date"></div><div class="form-group"><label class="form-label" for="termDatesEnd">End date</label><input class="form-input" type="date" id="termDatesEnd" name="end_date"></div><div class="form-actions"><button type="button" class="secondary-btn" onclick="closeModal('termDatesModal')">Cancel</button><button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save dates</button></div></form></div></div>
+<script>window.SCHOOL_EVENTS={{ calendar_events|tojson }};window.ALL_TERMS={{ all_terms_json|tojson }};window.CURRENT_TERM_ID={{ current_term.id if current_term else 'null' }};</script>
+<script src="{{ url_for('static', filename='js/calendar.js') }}"></script><script src="{{ url_for('static', filename='js/profile-menu.js') }}"></script><script src="{{ url_for('static', filename='js/profile-modals.js') }}"></script><script src="{{ url_for('static', filename='js/term-picker.js') }}"></script><script src="{{ url_for('static', filename='js/dashboard-ui.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body></html>

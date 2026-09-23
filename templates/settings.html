@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+    <div class="profile-tabs">
+        <a href="{{ url_for('settings_school') }}" class="profile-tab {% if active_tab == 'school' %}active{% endif %}">School profile</a>
+        <a href="{{ url_for('settings_users') }}" class="profile-tab {% if active_tab == 'users' %}active{% endif %}">Users &amp; access</a>
+        <a href="{{ url_for('settings_appearance') }}" class="profile-tab {% if active_tab == 'appearance' %}active{% endif %}">Appearance</a>
+        <a href="{{ url_for('settings_backup') }}" class="profile-tab {% if active_tab == 'backup' %}active{% endif %}">Backup &amp; data</a>
+    </div>
+
+    {% if active_tab == 'school' %}
+    <div class="form-card settings-card">
+        <p class="form-heading">School profile</p>
+        <p class="form-subheading">These details appear on report cards, printed timetables, and the topbar.</p>
+
+        <form method="post" action="{{ url_for('save_school_settings') }}" enctype="multipart/form-data">
+            <div class="photo-upload-row">
+                <div class="photo-upload-preview" id="logoPreview">
+                    {% if school_logo_url %}
+                        <img src="{{ school_logo_url }}" alt="School logo">
+                    {% else %}
+                        <span>{{ (school.name if school else "S")[:1] }}</span>
+                    {% endif %}
+                </div>
+                <div class="photo-upload-controls">
+                    <label class="form-label" for="logo">School logo</label>
+                    <input class="form-input" type="file" id="logo" name="logo" accept="image/png,image/jpeg,image/gif,image/webp">
+                    <p class="form-hint">PNG, JPG, GIF or WEBP.</p>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="name">School name</label>
+                <input class="form-input" type="text" id="name" name="name" value="{{ school.name if school else '' }}">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="type">Type <span class="optional-tag">optional</span></label>
+                <input class="form-input" type="text" id="type" name="type" value="{{ school.type if school else '' }}" placeholder="e.g. Primary School">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="address">Address <span class="optional-tag">optional</span></label>
+                <input class="form-input" type="text" id="address" name="address" value="{{ school.address if school else '' }}">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="phone">Phone <span class="optional-tag">optional</span></label>
+                <input class="form-input" type="text" id="phone" name="phone" value="{{ school.phone if school else '' }}">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="email">Email <span class="optional-tag">optional</span></label>
+                <input class="form-input" type="email" id="email" name="email" value="{{ school.email if school else '' }}">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="website">Website <span class="optional-tag">optional</span></label>
+                <input class="form-input" type="text" id="website" name="website" value="{{ school.website if school else '' }}">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="reg_no">Registration number <span class="optional-tag">optional</span></label>
+                <input class="form-input" type="text" id="reg_no" name="reg_no" value="{{ school.reg_no if school else '' }}">
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save changes</button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
+    {% if active_tab == 'users' %}
+    <div class="profiles-toolbar">
+        <div class="profiles-title">
+            <p class="profiles-heading">User accounts</p>
+            <span class="count-badge">{{ total_count }}</span>
+        </div>
+        <div class="profiles-actions">
+            <a href="{{ url_for('new_staff') }}" class="primary-btn"><i class="ti ti-user-plus"></i> Add user</a>
+        </div>
+    </div>
+
+    <p class="form-subheading settings-note">
+        Admins get full access to the whole system. Teachers are limited to student data — Profiles &rarr; Students,
+        Grades, Attendance and Reports — and can't reach Academics setup, Timetable, Events, Staff accounts, or Settings.
+    </p>
+
+    <div class="profiles-table-wrap">
+        <table class="profiles-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Access</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for account in accounts %}
+                <tr>
+                    <td class="name-cell name-cell-clickable" onclick='openUserLoginInfo({{ account|tojson }})' title="View first-time login info">{{ account.name }}</td>
+                    <td>{{ account.email }}</td>
+                    <td>
+                        <span class="role-badge">{{ 'Full access' if account.role == 'admin' else 'Students only' }}</span>
+                    </td>
+                    <td>
+                        {% if not account.is_active %}
+                            <span class="status-badge status-muted">Deactivated</span>
+                        {% elif account.status == 'Active' %}
+                            <span class="status-badge status-active">Active</span>
+                        {% else %}
+                            <span class="status-badge status-pending">Pending first sign-in</span>
+                        {% endif %}
+                    </td>
+                    <td class="settings-user-actions">
+                        <form method="post" action="{{ url_for('reset_user_password', staff_id=account.id) }}" class="inline-form">
+                            <button type="submit" class="secondary-btn" title="Reset password"><i class="ti ti-key"></i> Reset password</button>
+                        </form>
+                        <form method="post" action="{{ url_for('toggle_user_active', staff_id=account.id) }}" class="inline-form">
+                            <button type="submit" class="secondary-btn" title="{{ 'Deactivate' if account.is_active else 'Reactivate' }}">
+                                {% if account.is_active %}<i class="ti ti-user-off"></i> Deactivate{% else %}<i class="ti ti-user-check"></i> Reactivate{% endif %}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include "_pagination.html" %}
+
+    <!-- User: first-time login info -->
+    <div class="modal-overlay" id="userLoginInfoModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">First-time login info</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('userLoginInfoModal')"></i>
+            </div>
+
+            <div class="view-rows" id="userLoginInfoBody"></div>
+
+            <div class="credential-box" id="userLoginCredentials" hidden>
+                <div class="credential-row">
+                    <span class="credential-label">Email</span>
+                    <div class="credential-value-wrap">
+                        <code id="userLoginCredentialEmail"></code>
+                        <button type="button" class="icon-btn" title="Copy email" onclick="copyUserCredential('userLoginCredentialEmail', this)"><i class="ti ti-copy"></i></button>
+                    </div>
+                </div>
+                <div class="credential-row">
+                    <span class="credential-label">Temporary password</span>
+                    <div class="credential-value-wrap">
+                        <code id="userLoginCredentialPassword"></code>
+                        <button type="button" class="icon-btn" title="Copy password" onclick="copyUserCredential('userLoginCredentialPassword', this)"><i class="ti ti-copy"></i></button>
+                    </div>
+                </div>
+                <p class="form-hint">Copy this now — it won't be shown again here. Share it with the user directly; they'll set their own password on first sign-in.</p>
+            </div>
+
+            <p class="form-hint" id="userLoginPendingNote"></p>
+
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" id="userLoginResetBtn" onclick="generateUserLoginCredentials()"><i class="ti ti-key"></i> Generate login credentials</button>
+                <button type="button" class="secondary-btn" onclick="closeModal('userLoginInfoModal')">Close</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if active_tab == 'appearance' %}
+    <div class="form-card settings-card">
+        <p class="form-heading">Appearance</p>
+        <p class="form-subheading">Switch between light and dark. This is saved to your own account.</p>
+
+        <form method="post" action="{{ url_for('save_appearance_settings') }}">
+            <div class="theme-options">
+                <label class="theme-option {% if user.theme != 'dark' %}selected{% endif %}">
+                    <input type="radio" name="theme" value="light" {% if user.theme != 'dark' %}checked{% endif %}>
+                    <div class="theme-swatch theme-swatch-light"><i class="ti ti-sun"></i></div>
+                    <span>Light</span>
+                </label>
+                <label class="theme-option {% if user.theme == 'dark' %}selected{% endif %}">
+                    <input type="radio" name="theme" value="dark" {% if user.theme == 'dark' %}checked{% endif %}>
+                    <div class="theme-swatch theme-swatch-dark"><i class="ti ti-moon"></i></div>
+                    <span>Dark</span>
+                </label>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save preference</button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
+    {% if active_tab == 'backup' %}
+    <div class="form-card settings-card">
+        <p class="form-heading">Backup</p>
+        <p class="form-subheading">Download a full copy of the database. Keep it somewhere safe.</p>
+
+        {% if is_sqlite %}
+        <div class="form-actions settings-backup-actions">
+            <a href="{{ url_for('download_backup') }}" class="primary-btn"><i class="ti ti-download"></i> Download backup</a>
+        </div>
+        {% else %}
+        <p class="form-hint">This app is currently running against an external database, not the built-in SQLite file. Use your database provider's own backup tools (e.g. <code>pg_dump</code>) instead.</p>
+        {% endif %}
+    </div>
+
+    {% if is_sqlite %}
+    <div class="form-card settings-card settings-restore-card">
+        <p class="form-heading">Restore from backup</p>
+        <p class="form-subheading">Replaces everything currently in the database with the contents of the file you upload. The current database is copied to a safety file first, but this can't be fully undone from within the app — double check before you confirm.</p>
+
+        <form method="post" action="{{ url_for('restore_backup') }}" enctype="multipart/form-data" onsubmit="return confirm('This will replace all current data with the uploaded backup. Continue?');">
+            <div class="form-group">
+                <label class="form-label" for="backup_file">Backup file (.db)</label>
+                <input class="form-input" type="file" id="backup_file" name="backup_file" accept=".db">
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="secondary-btn settings-restore-btn"><i class="ti ti-upload"></i> Restore backup</button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+    {% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.querySelectorAll(".theme-option input").forEach((input) => {
+        input.addEventListener("change", () => {
+            document.querySelectorAll(".theme-option").forEach((el) => el.classList.remove("selected"));
+            input.closest(".theme-option").classList.add("selected");
+        });
+    });
+
+    // --- Users: first-time login info modal ---
+    const RESET_PASSWORD_URL_BASE = "/settings/users";
+    let currentLoginInfoAccount = null;
+
+    window.openUserLoginInfo = function (account) {
+        currentLoginInfoAccount = account;
+
+        const accessLabel = account.role === "admin" ? "Full access" : "Students only";
+        let statusHtml = '<span class="status-badge status-active">Active</span>';
+        if (!account.is_active) {
+            statusHtml = '<span class="status-badge status-muted">Deactivated</span>';
+        } else if (account.status !== "Active") {
+            statusHtml = '<span class="status-badge status-pending">Pending first sign-in</span>';
+        }
+
+        document.getElementById("userLoginInfoBody").innerHTML = `
+            <div class="view-row"><span class="view-label">Full name</span><span>${account.name || "—"}</span></div>
+            <div class="view-row"><span class="view-label">Email</span><span>${account.email || "—"}</span></div>
+            <div class="view-row"><span class="view-label">Access</span><span>${accessLabel}</span></div>
+            <div class="view-row"><span class="view-label">Status</span><span>${statusHtml}</span></div>
+        `;
+
+        const pendingNote = document.getElementById("userLoginPendingNote");
+        const resetBtn = document.getElementById("userLoginResetBtn");
+        resetBtn.disabled = false;
+
+        if (account.temp_password) {
+            // Show the credentials already on file — created with the account, or from
+            // the last reset — instead of generating a brand new one right away.
+            showUserLoginCredentials(account.email, account.temp_password);
+            pendingNote.textContent = account.status !== "Active"
+                ? `This is the password ${account.name.split(" ")[0]} was given when the account was created. It still works — copy and share it, or generate a new one below.`
+                : `This is the last password issued to ${account.name.split(" ")[0]}. If they've already changed it themselves, this copy will no longer work — generate a new one instead.`;
+            pendingNote.hidden = false;
+            resetBtn.innerHTML = '<i class="ti ti-refresh"></i> Generate new credentials';
+        } else {
+            document.getElementById("userLoginCredentials").hidden = true;
+            pendingNote.textContent = account.status !== "Active"
+                ? `${account.name.split(" ")[0]} hasn't signed in yet, and no saved password is on file. Generate login credentials below, then copy and share them directly.`
+                : `${account.name.split(" ")[0]} has already signed in and set their own password, so it isn't available to view. Generate new credentials if they need to be let back in.`;
+            pendingNote.hidden = false;
+            resetBtn.innerHTML = '<i class="ti ti-key"></i> Generate login credentials';
+        }
+
+        openModal("userLoginInfoModal");
+    };
+
+    function showUserLoginCredentials(email, password) {
+        document.getElementById("userLoginCredentialEmail").textContent = email;
+        document.getElementById("userLoginCredentialPassword").textContent = password;
+        document.getElementById("userLoginCredentials").hidden = false;
+    }
+
+    window.generateUserLoginCredentials = async function () {
+        if (!currentLoginInfoAccount) return;
+        const btn = document.getElementById("userLoginResetBtn");
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ti ti-loader"></i> Generating…';
+
+        try {
+            const response = await fetch(`${RESET_PASSWORD_URL_BASE}/${currentLoginInfoAccount.id}/reset-password`, {
+                method: "POST",
+                headers: { "X-Requested-With": "XMLHttpRequest" },
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                showUserLoginCredentials(data.email, data.temp_password);
+                currentLoginInfoAccount.temp_password = data.temp_password;
+                document.getElementById("userLoginPendingNote").textContent =
+                    `Copy this now and share it with ${data.name.split(" ")[0]} directly — they'll set their own password on next sign-in.`;
+                btn.innerHTML = '<i class="ti ti-refresh"></i> Generate new credentials';
+            }
+        } catch (err) {
+            console.error("Couldn't generate credentials:", err);
+        } finally {
+            btn.disabled = false;
+        }
+    };
+
+    window.copyUserCredential = function (elementId, btn) {
+        const text = document.getElementById(elementId).textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            const original = btn.innerHTML;
+            btn.innerHTML = '<i class="ti ti-check"></i>';
+            setTimeout(() => { btn.innerHTML = original; }, 1500);
+        });
+    };
+</script>
+{% endblock %} 

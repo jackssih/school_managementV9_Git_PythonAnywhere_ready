@@ -1,0 +1,443 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+    <div class="profile-tabs">
+        <a href="{{ url_for('grades', tab='assessments') }}"
+           class="profile-tab {% if active_tab == 'assessments' %}active{% endif %}">Assessments</a>
+        <a href="{{ url_for('grades', tab='comments') }}"
+           class="profile-tab {% if active_tab == 'comments' %}active{% endif %}">Comments</a>
+    </div>
+
+    <div class="profiles-toolbar">
+        <div class="profiles-title">
+            <p class="profiles-heading">
+                {% if grade_detail and active_tab == 'comments' and comment_student %}
+                    {{ comment_student.name }} — Comments
+                {% elif grade_detail %}
+                    {{ grade_class.name }} — {{ plural_label }}
+                {% else %}
+                    {{ plural_label }}
+                {% endif %}
+            </p>
+            <span class="count-badge">{{ total_count }}</span>
+        </div>
+
+        <div class="profiles-actions">
+            {% if grade_detail and active_tab == 'comments' and comment_student %}
+                <a class="secondary-btn" href="{{ url_for('grades_class', tab='comments', class_id=grade_class.id) }}"><i class="ti ti-arrow-left"></i> All students</a>
+            {% elif grade_detail %}
+                <a class="secondary-btn" href="{{ url_for('grades', tab=active_tab) }}"><i class="ti ti-arrow-left"></i> All classes</a>
+            {% endif %}
+            {% if not (active_tab == 'comments' and comment_student) %}
+                <form class="search-box" method="get" action="{{ url_for('grades_class', tab=active_tab, class_id=grade_class.id) if grade_detail else url_for('grades') }}">
+                    {% if not grade_detail %}<input type="hidden" name="tab" value="{{ active_tab }}">{% endif %}
+                    {% if grade_detail and active_tab == 'assessments' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+                    <i class="ti ti-search"></i>
+                    <input type="search" name="q" value="{{ search_query }}" placeholder="Search">
+                </form>
+            {% endif %}
+            {% if grade_detail and active_tab == 'assessments' %}
+                <form class="sort-box" method="get" action="{{ url_for('grades_class', tab='assessments', class_id=grade_class.id) }}">
+                    {% if search_query %}<input type="hidden" name="q" value="{{ search_query }}">{% endif %}
+                    <label for="assessment-sort">Sort by</label>
+                    <select id="assessment-sort" name="sort" onchange="this.form.submit()">
+                        {% for option in sort_options %}
+                            <option value="{{ option.value }}" {% if sort == option.value %}selected{% endif %}>{{ option.label }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            {% endif %}
+            {% if grade_detail and (active_tab == 'assessments' or (active_tab == 'comments' and comment_student)) %}
+                <button type="button" class="primary-btn" onclick="openModal('{{ active_tab }}AddModal')">
+                    <i class="ti ti-plus"></i> Add {{ singular_label }}
+                </button>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if not grade_detail %}
+        <div class="profiles-table-wrap">
+            <table class="profiles-table">
+                <thead>
+                    <tr>
+                        <th>Class</th>
+                        <th>Level</th>
+                        <th>Class teacher</th>
+                        <th>Students</th>
+                        {% if active_tab == 'assessments' %}
+                            <th>Assessments</th>
+                        {% else %}
+                            <th>Comments</th>
+                        {% endif %}
+                        <th class="col-action">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in records %}
+                        <tr>
+                            <td class="name-cell">
+                                <a class="academic-class-link" href="{{ url_for('grades_class', tab=active_tab, class_id=r.id) }}">{{ r.name }}</a>
+                            </td>
+                            <td>{{ r.level }}</td>
+                            <td>{{ r.teacher or "—" }}</td>
+                            <td>{{ r.students_count }}</td>
+                            {% if active_tab == 'assessments' %}
+                                <td>{{ r.assessments_count }}</td>
+                            {% else %}
+                                <td>{{ r.comments_count }}</td>
+                            {% endif %}
+                            <td class="col-action">
+                                <div class="row-actions">
+                                    <a class="icon-btn" title="Open" href="{{ url_for('grades_class', tab=active_tab, class_id=r.id) }}"><i class="ti ti-eye"></i></a>
+                                </div>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="6" class="empty-cell">No arranged classes found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "_pagination.html" %}
+    {% elif active_tab == 'comments' and not comment_student %}
+        <div class="profiles-table-wrap">
+            <table class="profiles-table">
+                <thead>
+                    <tr>
+                        <th>Student</th>
+                        <th>Registration no.</th>
+                        <th>Comments</th>
+                        <th class="col-action">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for student in comment_students %}
+                        <tr>
+                            <td class="name-cell">
+                                <a class="academic-class-link" href="{{ url_for('grades_comment_student', class_id=grade_class.id, student_id=student.id) }}">{{ student.name }}</a>
+                            </td>
+                            <td>{{ student.registration_number or "—" }}</td>
+                            <td>{{ student.comments|length }}</td>
+                            <td class="col-action">
+                                <div class="row-actions">
+                                    <a class="icon-btn" title="Open" href="{{ url_for('grades_comment_student', class_id=grade_class.id, student_id=student.id) }}"><i class="ti ti-eye"></i></a>
+                                    <a class="icon-btn" title="Add comment" href="{{ url_for('grades_comment_student', class_id=grade_class.id, student_id=student.id) }}?open_add=1"><i class="ti ti-plus"></i></a>
+                                </div>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="4" class="empty-cell">No students are arranged in {{ grade_class.name }}.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "_pagination.html" %}
+    {% elif active_tab == 'comments' and comment_student %}
+        <div class="profiles-table-wrap">
+            <table class="profiles-table">
+                <thead>
+                    <tr>
+                        <th>Comment</th>
+                        <th>Comment by</th>
+                        <th>Teacher</th>
+                        <th>Report</th>
+                        <th class="col-action">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for comment in student_comments %}
+                        <tr>
+                            <td class="comment-cell">{{ comment.comment }}</td>
+                            <td>{{ comment.comment_type }}</td>
+                            <td>{{ comment.teacher or "—" }}</td>
+                            <td>{{ comment.report_stage or "—" }}</td>
+                            <td class="col-action">
+                                <div class="row-actions">
+                                    <button type="button" class="icon-btn" title="Edit comment" data-grade-action="edit-comment" data-record="{{ comment|tojson|forceescape }}"><i class="ti ti-edit"></i></button>
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete comment" data-grade-action="delete" data-form-id="comment-delete-form-{{ comment.id }}" data-label="this comment"><i class="ti ti-trash"></i></button>
+                                    <form id="comment-delete-form-{{ comment.id }}" action="{{ url_for('delete_grade_comment', comment_id=comment.id) }}" method="post" hidden></form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="5" class="empty-cell">No comments recorded for {{ comment_student.name }} yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "_pagination.html" %}
+    {% else %}
+        <div class="profiles-table-wrap">
+            <table class="profiles-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Subject</th>
+                        <th>Type</th>
+                        <th>Maximum</th>
+                        <th>Recorded results</th>
+                        <th class="col-action">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in records %}
+                        <tr>
+                            <td class="date-cell">{{ r.date }}</td>
+                            <td class="name-cell">{{ r.subject }} <span class="table-subtext">{{ r.class_name }} · {{ r.level }}</span></td>
+                            <td>{{ r.assessment_type }}</td>
+                            <td>{{ r.maximum }}</td>
+                            <td><button type="button" class="link-btn" data-grade-action="results" data-record="{{ r|tojson|forceescape }}">{{ r.recorded_label }}</button></td>
+                            <td class="col-action">
+                                <div class="row-actions">
+                                    <button type="button" class="icon-btn" title="Edit" data-grade-action="edit-assessment" data-record="{{ r|tojson|forceescape }}"><i class="ti ti-edit"></i></button>
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" data-grade-action="delete" data-form-id="assessment-delete-form-{{ r.id }}" data-label="{{ r.subject }}"><i class="ti ti-trash"></i></button>
+                                    <form id="assessment-delete-form-{{ r.id }}" action="{{ url_for('delete_assessment', assessment_id=r.id) }}" method="post" hidden></form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="6" class="empty-cell">No assessments recorded for {{ grade_class.name }}.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "_pagination.html" %}
+    {% endif %}
+
+    <div class="modal-overlay" id="assessmentsAddModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Add assessment</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('assessmentsAddModal')"></i>
+            </div>
+            <form class="modal-form" action="{{ url_for('new_assessment') }}" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="assessment-date">Date</label>
+                    <input class="form-input date-picker" type="text" id="assessment-date" name="date" placeholder="DD-MM-YYYY">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="assessment-subject">Subject</label>
+                    <select class="form-input" id="assessment-subject" name="subject_id">
+                        <option value="">Choose subject</option>
+                        {% for subject in subjects %}
+                            <option value="{{ subject.id }}">{{ subject.name }}{% if not grade_detail %} — {{ subject.class_name }}{% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="assessment-type">Type</label>
+                    <select class="form-input" id="assessment-type" name="assessment_type">
+                        <option value="">Choose type</option>
+                        {% for type in assessment_types %}
+                            <option value="{{ type }}">{{ type }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="assessment-maximum">Maximum</label>
+                    <input class="form-input" type="number" id="assessment-maximum" name="maximum" value="100" min="1">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('assessmentsAddModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Add assessment</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if active_tab == 'comments' and comment_student %}
+    <div class="modal-overlay" id="commentsAddModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Add comment</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('commentsAddModal')"></i>
+            </div>
+            <form class="modal-form" action="{{ url_for('new_grade_comment') }}" method="post">
+                <div class="form-group">
+                    <label class="form-label">Student</label>
+                    <input type="hidden" id="comment-student" name="student_id" value="{{ comment_student.id }}">
+                    <div class="form-input" style="background:var(--surface-muted, #f6f7f8);">{{ comment_student.name }}</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="comment-type">Comment by</label>
+                    <select class="form-input" id="comment-type" name="comment_type">
+                        <option value="">Choose</option>
+                        <option value="Class teacher">Class teacher</option>
+                        <option value="Head teacher">Head teacher</option>
+                    </select>
+                    <p class="form-hint">For a subject teacher's assessment, add it against that subject's assessment result instead — it can then differ per B.O.T./Mid/E.O.T.</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="comment-report-stage">Report</label>
+                    <select class="form-input" id="comment-report-stage" name="report_stage">
+                        <option value="">Choose report</option>
+                        {% for stage in comment_report_stages %}
+                            <option value="{{ stage }}">{{ stage }}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="form-hint">Class teachers comment on the end of term report as well as the mini (B.O.T./Mid-term) report — choose which one this comment is for.</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="comment-teacher">Teacher</label>
+                    <select class="form-input" id="comment-teacher" name="teacher">
+                        <option value="">Choose teacher</option>
+                        {% if comment_allowed_teachers.get('Class teacher') %}
+                            <option value="{{ comment_allowed_teachers['Class teacher'] }}" data-role="Class teacher">{{ comment_allowed_teachers['Class teacher'] }} — Class teacher</option>
+                        {% endif %}
+                        {% if comment_allowed_teachers.get('Head teacher') %}
+                            <option value="{{ comment_allowed_teachers['Head teacher'] }}" data-role="Head teacher">{{ comment_allowed_teachers['Head teacher'] }} — Head teacher</option>
+                        {% endif %}
+                    </select>
+                    <p class="form-hint">Only this class's class teacher and the school's head teacher can comment here.</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="comment-text">Comment</label>
+                    <textarea class="form-input form-textarea" id="comment-text" name="comment"></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('commentsAddModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Add comment</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="modal-overlay" id="assessmentEditModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Edit assessment</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('assessmentEditModal')"></i>
+            </div>
+            <form class="modal-form" id="assessmentEditForm" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="assessment-edit-date">Date</label>
+                    <input class="form-input date-picker" type="text" id="assessment-edit-date" name="date">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="assessment-edit-subject">Subject</label>
+                    <select class="form-input" id="assessment-edit-subject" name="subject_id">
+                        {% for subject in subjects %}
+                            <option value="{{ subject.id }}" data-subject-name="{{ subject.name }}" data-class-name="{{ subject.class_name }}">{{ subject.name }} — {{ subject.class_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="assessment-edit-type">Type</label>
+                    <select class="form-input" id="assessment-edit-type" name="assessment_type">
+                        {% for type in assessment_types %}
+                            <option value="{{ type }}">{{ type }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="assessment-edit-maximum">Maximum</label>
+                    <input class="form-input" type="number" id="assessment-edit-maximum" name="maximum" min="1">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('assessmentEditModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if active_tab == 'comments' and comment_student %}
+    <div class="modal-overlay" id="commentEditModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Edit comment</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('commentEditModal')"></i>
+            </div>
+            <form class="modal-form" id="commentEditForm" method="post">
+                <div class="form-group">
+                    <label class="form-label">Student</label>
+                    <input type="hidden" id="comment-edit-student" name="student_id" value="{{ comment_student.id }}">
+                    <div class="form-input" style="background:var(--surface-muted, #f6f7f8);">{{ comment_student.name }}</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="comment-edit-type">Comment by</label>
+                    <select class="form-input" id="comment-edit-type" name="comment_type">
+                        <option value="Class teacher">Class teacher</option>
+                        <option value="Head teacher">Head teacher</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="comment-edit-report-stage">Report</label>
+                    <select class="form-input" id="comment-edit-report-stage" name="report_stage">
+                        {% for stage in comment_report_stages %}
+                            <option value="{{ stage }}">{{ stage }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="comment-edit-teacher">Teacher</label>
+                    <select class="form-input" id="comment-edit-teacher" name="teacher">
+                        <option value="">Choose teacher</option>
+                        {% if comment_allowed_teachers.get('Class teacher') %}
+                            <option value="{{ comment_allowed_teachers['Class teacher'] }}" data-role="Class teacher">{{ comment_allowed_teachers['Class teacher'] }} — Class teacher</option>
+                        {% endif %}
+                        {% if comment_allowed_teachers.get('Head teacher') %}
+                            <option value="{{ comment_allowed_teachers['Head teacher'] }}" data-role="Head teacher">{{ comment_allowed_teachers['Head teacher'] }} — Head teacher</option>
+                        {% endif %}
+                    </select>
+                    <p class="form-hint">Only this class's class teacher and the school's head teacher can comment here.</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="comment-edit-text">Comment</label>
+                    <textarea class="form-input form-textarea" id="comment-edit-text" name="comment"></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('commentEditModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="modal-overlay" id="resultsModal">
+        <div class="modal-dialog modal-dialog-wide">
+            <div class="modal-header">
+                <p class="form-heading" id="resultsModalTitle">Recorded results</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('resultsModal')"></i>
+            </div>
+            <form class="modal-form" id="resultsForm" method="post">
+                <div class="results-grid" id="resultsGrid"></div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('resultsModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save results</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="confirmDeleteModal">
+        <div class="modal-dialog modal-dialog-narrow">
+            <div class="modal-header">
+                <p class="form-heading">Remove record?</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('confirmDeleteModal')"></i>
+            </div>
+            <p class="form-subheading" id="confirmDeleteText"></p>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('confirmDeleteModal')">Cancel</button>
+                <button type="button" class="danger-btn" id="confirmDeleteBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    {% if active_tab == 'comments' and comment_student and request.args.get('open_add') == '1' %}
+    <script>document.addEventListener('DOMContentLoaded', function(){ if (typeof openModal === 'function') openModal('commentsAddModal'); });</script>
+    {% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ url_for('static', filename='js/date-picker.js') }}"></script>
+    <script>
+        const ASSESSMENT_URL_BASE = "/grades/assessments";
+        const COMMENT_URL_BASE = "/grades/comments";
+    </script>
+    <script src="{{ url_for('static', filename='js/grades-actions.js') }}"></script>
+{% endblock %}

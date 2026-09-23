@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+    <div class="profile-header-card">
+        <div class="profile-avatar-lg">
+            {% if member.photo_url %}
+                <img src="{{ member.photo_url }}" alt="{{ member.name }}">
+            {% else %}
+                {{ member.initials }}
+            {% endif %}
+        </div>
+
+        <div class="profile-header-info">
+            <p class="profile-name">{{ member.name }}</p>
+            <div class="profile-role-row">
+                <span class="role-badge">{{ member.role }}</span>
+                <span class="status-badge {% if member.status == 'Active' %}status-active{% else %}status-pending{% endif %}">
+                    {{ member.status }}
+                </span>
+            </div>
+        </div>
+
+        <button type="button" class="primary-btn" onclick="openProfileEdit()">
+            <i class="ti ti-edit"></i> Edit profile
+        </button>
+    </div>
+
+    <div class="profile-info-card">
+        <p class="profile-info-heading">Contact info</p>
+        <div class="view-rows">
+            <div class="view-row"><span class="view-label">Full name</span><span>{{ member.name or "—" }}</span></div>
+            <div class="view-row"><span class="view-label">Email</span><span>{{ member.email or "—" }}</span></div>
+            <div class="view-row"><span class="view-label">Phone</span><span>{{ member.phone or "—" }}</span></div>
+            <div class="view-row"><span class="view-label">Role</span><span>{{ member.role or "—" }}</span></div>
+            <div class="view-row"><span class="view-label">Created on</span><span>{{ member.created_on or "—" }}</span></div>
+        </div>
+    </div>
+
+    <!-- Edit profile -->
+    <div class="modal-overlay" id="profileEditModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Edit profile</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('profileEditModal')"></i>
+            </div>
+
+            <form class="modal-form" id="profileEditForm" action="{{ url_for('edit_profile') }}" method="post" enctype="multipart/form-data">
+                <div class="photo-upload-row">
+                    <div class="photo-upload-preview" id="profilePhotoPreview">
+                        {% if member.photo_url %}
+                            <img src="{{ member.photo_url }}" alt="{{ member.name }}" id="profilePhotoPreviewImg">
+                        {% else %}
+                            <span id="profilePhotoPreviewInitials">{{ member.initials }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="photo-upload-controls">
+                        <label class="form-label" for="profile-edit-photo">Photo</label>
+                        <input class="form-input" type="file" id="profile-edit-photo" name="photo" accept="image/png,image/jpeg,image/gif,image/webp">
+                        <p class="form-hint">PNG, JPG, GIF or WEBP.</p>
+                    </div>
+                </div>
+
+                <div class="photo-upload-row">
+                    <div class="photo-upload-preview" id="profileSignaturePreview">
+                        {% if member.signature_url %}
+                            <img src="{{ member.signature_url }}" alt="{{ member.name }} signature" id="profileSignaturePreviewImg">
+                        {% else %}
+                            <span class="photo-upload-preview-empty">No signature</span>
+                        {% endif %}
+                    </div>
+                    <div class="photo-upload-controls">
+                        <label class="form-label" for="profile-edit-signature">Digital signature</label>
+                        <input class="form-input" type="file" id="profile-edit-signature" name="signature" accept="image/png,image/jpeg,image/gif,image/webp">
+                        <p class="form-hint">A photo of your signature — shown on report cards instead of a blank signing line.</p>
+                    </div>
+                </div>
+
+
+                <div class="form-group">
+                    <label class="form-label" for="profile-edit-name">Full name</label>
+                    <input class="form-input" type="text" id="profile-edit-name" name="name" value="{{ member.name }}">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="profile-edit-email">Email</label>
+                    <input class="form-input" type="email" id="profile-edit-email" name="email" value="{{ member.email }}">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="profile-edit-phone">Phone <span class="optional-tag">optional</span></label>
+                    <input class="form-input" type="text" id="profile-edit-phone" name="phone" value="{{ member.phone }}">
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('profileEditModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        function openProfileEdit() {
+            openModal('profileEditModal');
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const fileInput = document.getElementById("profile-edit-photo");
+            if (fileInput) {
+                fileInput.addEventListener("change", () => {
+                    const file = fileInput.files && fileInput.files[0];
+                    if (!file) return;
+
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        document.getElementById("profilePhotoPreview").innerHTML =
+                            `<img src="${e.target.result}" alt="Preview">`;
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            const signatureInput = document.getElementById("profile-edit-signature");
+            if (signatureInput) {
+                signatureInput.addEventListener("change", () => {
+                    const file = signatureInput.files && signatureInput.files[0];
+                    if (!file) return;
+
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        document.getElementById("profileSignaturePreview").innerHTML =
+                            `<img src="${e.target.result}" alt="Preview">`;
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+        });
+    </script>
+{% endblock %}

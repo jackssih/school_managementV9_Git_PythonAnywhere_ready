@@ -1,0 +1,728 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+    <div class="profile-tabs">
+        <a href="{{ url_for('academics', tab='classes') }}"
+           class="profile-tab {% if active_tab == 'classes' %}active{% endif %}">Classes</a>
+        <a href="{{ url_for('academics', tab='subjects') }}"
+           class="profile-tab {% if active_tab == 'subjects' %}active{% endif %}">Subjects</a>
+        <a href="{{ url_for('academics', tab='enrollment') }}"
+           class="profile-tab {% if active_tab == 'enrollment' %}active{% endif %}">Enrollment</a>
+        <a href="{{ url_for('academics', tab='promotion') }}"
+           class="profile-tab {% if active_tab == 'promotion' %}active{% endif %}">Promotion</a>
+    </div>
+
+    <div class="profiles-toolbar">
+        <div class="profiles-title">
+            {% if active_tab == 'subjects' and subject_detail %}
+                <p class="profiles-heading">{{ subject_class.name }} Subjects</p>
+                <span class="count-badge">{{ total_count }}</span>
+            {% elif active_tab == 'enrollment' and enrollment_detail %}
+                <p class="profiles-heading">{{ enrollment_class.name }} — Student Enrollment</p>
+                <span class="count-badge">{{ total_count }}</span>
+            {% else %}
+                <p class="profiles-heading">All {{ plural_label }}</p>
+                <span class="count-badge">{{ total_count }}</span>
+            {% endif %}
+        </div>
+
+        <div class="profiles-actions">
+            <form class="search-box" method="get" action="{{ url_for('academic_subjects_class', class_id=subject_class.id) if active_tab == 'subjects' and subject_detail else (url_for('academic_enrollment_class', class_id=enrollment_class.id) if active_tab == 'enrollment' and enrollment_detail else url_for('academics')) }}">
+                {% if not (active_tab == 'subjects' and subject_detail) and not (active_tab == 'enrollment' and enrollment_detail) %}<input type="hidden" name="tab" value="{{ active_tab }}">{% endif %}
+                <i class="ti ti-search"></i>
+                <input type="search" name="q" value="{{ search_query }}" placeholder="Search">
+            </form>
+            {% if active_tab == 'enrollment' and not enrollment_detail %}
+            <button type="button" class="secondary-btn" onclick="openModal('bulkEnrollModal')">
+                <i class="ti ti-users-plus"></i> Bulk enroll
+            </button>
+            {% endif %}
+            {% if active_tab == 'subjects' and subject_detail %}
+            <button type="button" class="primary-btn" onclick="openModal('subjectsAddModal')">
+                <i class="ti ti-plus"></i> Add Subject
+            </button>
+            {% elif active_tab == 'enrollment' and enrollment_detail %}
+            <button type="button" class="primary-btn" onclick="openModal('enrollmentStudentModal')">
+                <i class="ti ti-plus"></i> Enroll Student
+            </button>
+            {% elif active_tab == 'promotion' %}
+            <button type="button" class="secondary-btn" onclick="openModal('promotionAddModal')">
+                <i class="ti ti-plus"></i> Add {{ singular_label }}
+            </button>
+            {% if latest_promotion_run and latest_promotion_run.status == 'Applied' %}
+            <button type="button" class="secondary-btn" onclick="openModal('promotionUndoModal')">
+                <i class="ti ti-refresh"></i> Undo last promotion
+            </button>
+            {% endif %}
+            <button type="button" class="primary-btn" onclick="openModal('promotionRunModal')">
+                <i class="ti ti-arrow-up-right"></i> Promote to next year
+            </button>
+            {% elif active_tab != 'subjects' and active_tab != 'enrollment' %}
+            <button type="button" class="primary-btn" onclick="openModal('{{ active_tab }}AddModal')">
+                <i class="ti ti-plus"></i> Add {{ singular_label }}
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if (active_tab == 'subjects' and subject_detail) or (active_tab == 'enrollment' and enrollment_detail) %}
+    <div style="margin-bottom: 16px;">
+        <a class="back-pill" href="{{ url_for('academics', tab=active_tab) }}">
+            <i class="ti ti-arrow-left"></i> All Classes
+        </a>
+    </div>
+    {% endif %}
+
+    {% if active_tab == 'promotion' and latest_promotion_run %}
+    <div class="profiles-table-wrap" style="margin-bottom: 16px;">
+        <p class="profiles-heading" style="padding: 12px 16px 0;">
+            Last promotion — {{ latest_promotion_run.run_date }}
+            <span class="status-badge {{ 'status-active' if latest_promotion_run.status == 'Applied' else 'status-pending' }}">
+                {{ latest_promotion_run.status }}
+            </span>
+        </p>
+        <p class="form-subheading" style="padding: 4px 16px 12px;">
+            {{ latest_promotion_run.moved }} promoted · {{ latest_promotion_run.stayed }} kept back
+            {%- if latest_promotion_run.completed %} · {{ latest_promotion_run.completed }} completed Primary 7{% endif %}
+            {%- if latest_promotion_run.discontinued %} · {{ latest_promotion_run.discontinued }} discontinued{% endif %}
+            {%- if latest_promotion_run.unresolved %} · {{ latest_promotion_run.unresolved }} need manual placement{% endif %}
+            {%- if latest_promotion_run.reverted %} · {{ latest_promotion_run.reverted }} undone{% endif %}
+        </p>
+        <table class="profiles-table">
+            <thead>
+                <tr>
+                    <th>Student</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>Outcome</th>
+                    <th class="col-action">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in latest_promotion_run.entries %}
+                <tr>
+                    <td class="name-cell">{{ e.student_name }}</td>
+                    <td>{{ e.from_class_name or "—" }}</td>
+                    <td>{{ e.to_class_name or "—" }}</td>
+                    <td>{{ "Undone" if e.reverted else e.outcome }}</td>
+                    <td class="col-action">
+                        {% if not e.reverted and e.outcome != 'Unresolved' %}
+                        <button type="button" class="icon-btn" title="Undo this student's promotion"
+                                onclick="document.getElementById('undo-student-form-{{ e.student_id }}').submit()">
+                            <i class="ti ti-refresh"></i>
+                        </button>
+                        <form id="undo-student-form-{{ e.student_id }}"
+                              action="{{ url_for('undo_promotion_student', student_id=e.student_id) }}" method="post" hidden></form>
+                        {% else %}—{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <div class="profiles-table-wrap">
+        <table class="profiles-table">
+            <thead>
+                {% if active_tab == 'subjects' and not subject_detail %}
+                    <tr>
+                        <th>Class</th>
+                        <th>Students</th>
+                        <th>Subjects</th>
+                        <th>Teacher</th>
+                        <th class="col-action">Actions</th>
+                    </tr>
+                {% elif active_tab == 'subjects' %}
+                    <tr>
+                        <th>Subject</th>
+                        <th>Maximum mark</th>
+                        <th>Subject type</th>
+                        <th>Teacher</th>
+                        <th>Students</th>
+                        <th class="col-action">Actions</th>
+                    </tr>
+                {% elif active_tab == 'enrollment' and enrollment_detail %}
+                    <tr>
+                        <th>Student</th>
+                        <th>Student ID</th>
+                        <th>Gender</th>
+                        <th>Status</th>
+                        <th>Date Enrolled</th>
+                        <th class="col-action">Actions</th>
+                    </tr>
+                {% elif active_tab == 'enrollment' %}
+                    <tr>
+                        <th>Class</th>
+                        <th>Students</th>
+                        <th>Teacher</th>
+                        <th class="col-action">Actions</th>
+                    </tr>
+                {% elif active_tab == 'promotion' %}
+                    <tr>
+                        <th>Classes</th>
+                        <th>All students</th>
+                        <th>Promoted</th>
+                        <th>Second sitting</th>
+                        <th>Repeating</th>
+                        <th>Discontinued</th>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <th>Name</th>
+                        <th>Enrolled students</th>
+                        <th>Subjects</th>
+                        <th>Teacher</th>
+                        <th class="col-action">Actions</th>
+                    </tr>
+                {% endif %}
+            </thead>
+            <tbody>
+                {% for r in records %}
+                    {% if active_tab == 'subjects' and not subject_detail %}
+                        <tr>
+                            <td class="name-cell">
+                                <a class="academic-class-link" href="{{ url_for('academic_subjects_class', class_id=r.id) }}">{{ r.name }}</a>
+                            </td>
+                            <td>
+                                <button type="button" class="link-btn" onclick='openStudentList({{ (r.name ~ " students")|tojson }}, {{ r.students|tojson }})'>
+                                    {{ r.enrolled_students }}
+                                </button>
+                            </td>
+                            <td>
+                                <a class="link-btn" href="{{ url_for('academic_subjects_class', class_id=r.id) }}">{{ r.subjects }}</a>
+                            </td>
+                            <td>{{ r.teacher or "—" }}</td>
+                            <td class="col-action">
+                                <a class="icon-btn" title="Open subjects" href="{{ url_for('academic_subjects_class', class_id=r.id) }}"><i class="ti ti-arrow-right"></i></a>
+                            </td>
+                        </tr>
+                    {% elif active_tab == 'subjects' %}
+                        <tr>
+                            <td class="name-cell">{{ r.name }}</td>
+                            <td>{{ r.maximum_mark }}</td>
+                            <td>{{ r.subject_type_label }}</td>
+                            <td>{{ r.teacher or "—" }}</td>
+                            <td>
+                                <button type="button" class="link-btn" onclick='openStudentList({{ (r.name ~ " students")|tojson }}, {{ r.students|tojson }})'>
+                                    {{ r.students_count }}
+                                </button>
+                            </td>
+                            <td class="col-action">
+                                <div class="row-actions">
+                                    <button type="button" class="icon-btn" title="View" onclick='openSubjectView({{ r|tojson }})'><i class="ti ti-eye"></i></button>
+                                    <button type="button" class="icon-btn" title="Edit" onclick='openSubjectEdit({{ r|tojson }})'><i class="ti ti-edit"></i></button>
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" onclick='openDeleteConfirm({{ ("subject-delete-form-" ~ r.id)|tojson }}, {{ r.name|tojson }})'><i class="ti ti-trash"></i></button>
+                                    <form id="subject-delete-form-{{ r.id }}" action="{{ url_for('delete_subject', subject_id=r.id) }}" method="post" hidden></form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% elif active_tab == 'enrollment' and enrollment_detail %}
+                        <tr>
+                            <td class="name-cell">{{ r.name }}</td>
+                            <td>{{ r.registration_number }}</td>
+                            <td>{{ r.gender or "—" }}</td>
+                            <td><span class="status-badge status-active">{{ r.status }}</span></td>
+                            <td class="date-cell">{{ r.enrollment_date }}</td>
+                            <td class="col-action">
+                                <div class="row-actions">
+                                    <button type="button" class="icon-btn" title="View"
+                                            onclick='openEnrollmentStudentView({{ r|tojson }}, {{ enrollment_class.name|tojson }})'><i class="ti ti-eye"></i></button>
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Remove"
+                                            onclick='openDeleteConfirm({{ ("student-remove-form-" ~ r.id)|tojson }}, {{ r.name|tojson }})'><i class="ti ti-user-minus"></i></button>
+                                    <form id="student-remove-form-{{ r.id }}"
+                                          action="{{ url_for('remove_student_from_enrollment', student_id=r.id) }}" method="post" hidden></form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% elif active_tab == 'enrollment' %}
+                        <tr>
+                            <td class="name-cell">
+                                <a class="academic-class-link" href="{{ url_for('academic_enrollment_class', class_id=r.id) }}">{{ r.name }}</a>
+                            </td>
+                            <td>
+                                <a class="link-btn" href="{{ url_for('academic_enrollment_class', class_id=r.id) }}">{{ r.enrolled_students }} Students</a>
+                            </td>
+                            <td>{{ r.teacher or "—" }}</td>
+                            <td class="col-action">
+                                <a class="icon-btn" title="Open enrollment" href="{{ url_for('academic_enrollment_class', class_id=r.id) }}"><i class="ti ti-arrow-right"></i></a>
+                            </td>
+                        </tr>
+                    {% elif active_tab == 'promotion' %}
+                        <tr>
+                            <td class="name-cell">{{ r.class_name }}</td>
+                            <td>
+                                <button type="button" class="link-btn"
+                                        onclick='openPromotionModal({{ r|tojson }})'>
+                                    {{ r.all_students }}
+                                </button>
+                            </td>
+                            <td>{{ r.promoted }}</td>
+                            <td>{{ r.second_sitting }}</td>
+                            <td>{{ r.repeating }}</td>
+                            <td>{{ r.discontinued }}</td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td class="name-cell">{{ r.name }}</td>
+                            <td>
+                                <span class="inline-actions">
+                                    <button type="button" class="link-btn"
+                                            onclick='openStudentList({{ (r.name ~ " students")|tojson }}, {{ r.students|tojson }})'>
+                                        {{ r.enrolled_students }}
+                                    </button>
+                                    <a class="icon-btn icon-btn-compact" title="Download list"
+                                       href="{{ url_for('download_class_students', class_id=r.id) }}">
+                                        <i class="ti ti-download"></i>
+                                    </a>
+                                </span>
+                            </td>
+                            <td>{{ r.subjects }}</td>
+                            <td>{{ r.teacher or "—" }}</td>
+                            <td class="col-action">
+                                <div class="row-actions">
+                                    <button type="button" class="icon-btn" title="View"
+                                            onclick='openClassView({{ r|tojson }})'><i class="ti ti-eye"></i></button>
+                                    <button type="button" class="icon-btn" title="Edit"
+                                            onclick='openClassEdit({{ r|tojson }})'><i class="ti ti-edit"></i></button>
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete"
+                                            onclick='openDeleteConfirm({{ ("class-delete-form-" ~ r.id)|tojson }}, {{ r.name|tojson }})'><i class="ti ti-trash"></i></button>
+                                    <form id="class-delete-form-{{ r.id }}"
+                                          action="{{ url_for('delete_academic_class', class_id=r.id) }}" method="post" hidden></form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include "_pagination.html" %}
+
+    <div class="modal-overlay" id="classesAddModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Add class</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('classesAddModal')"></i>
+            </div>
+            <form class="modal-form" action="{{ url_for('new_academic_class') }}" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="class-name">Name</label>
+                    <input class="form-input" type="text" id="class-name" name="name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="class-teacher">Teacher</label>
+                    <select class="form-input" id="class-teacher" name="teacher">
+                        <option value="">No teacher assigned</option>
+                        {% for teacher in teachers %}<option value="{{ teacher }}">{{ teacher }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('classesAddModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Add class</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="subjectsAddModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Add subject</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('subjectsAddModal')"></i>
+            </div>
+            <form class="modal-form" action="{{ url_for('new_subject') }}" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="subject-name">Subject</label>
+                    <input class="form-input" type="text" id="subject-name" name="name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="subject-class">Class</label>
+                    {% if subject_detail %}
+                        <input class="form-input" type="text" value="{{ subject_class.name }}" readonly>
+                        <input type="hidden" id="subject-class" name="class_name" value="{{ subject_class.name }}">
+                    {% else %}
+                        <select class="form-input" id="subject-class" name="class_name">
+                            <option value="">Choose class</option>
+                            {% for c in classes %}<option value="{{ c.name }}">{{ c.name }}</option>{% endfor %}
+                        </select>
+                    {% endif %}
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="subject-mark">Maximum mark</label>
+                    <input class="form-input" type="number" id="subject-mark" name="maximum_mark" value="100" min="1">
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-row">
+                        <input type="checkbox" name="is_compulsory" checked>
+                        <span>Compulsory (Major subject)</span>
+                    </label>
+                    <p class="form-hint">Compulsory subjects are graded with marks (B.O.T./Mid/E.O.T.) as Major subjects. Unchecked, this becomes an Other subject — still assessed each period, but scored with a letter grade on the report.</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="subject-teacher">Teacher</label>
+                    <select class="form-input" id="subject-teacher" name="teacher">
+                        <option value="">No teacher assigned</option>
+                        {% for teacher in teachers %}<option value="{{ teacher }}">{{ teacher }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('subjectsAddModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Add subject</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if active_tab == 'enrollment' and enrollment_detail %}
+    <div class="modal-overlay" id="enrollmentStudentModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Enroll Student</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('enrollmentStudentModal')"></i>
+            </div>
+            <form class="modal-form" action="{{ url_for('new_enrollment') }}" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="enrollment-class">Class</label>
+                    <input class="form-input" type="text" value="{{ enrollment_class.name }}" readonly>
+                    <input type="hidden" id="enrollment-class" name="class_name" value="{{ enrollment_class.name }}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="enrollment-students">Student</label>
+                    <select class="form-input multi-select" id="enrollment-students" name="student_ids" multiple>
+                        {% for student in students if not student.enrolled_class %}
+                            <option value="{{ student.id }}">{{ student.name }} — Not enrolled</option>
+                        {% endfor %}
+                    </select>
+                    <p class="form-hint">You can select one or more students to enroll in {{ enrollment_class.name }}.</p>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('enrollmentStudentModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Enroll Student</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="modal-overlay" id="promotionAddModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Promotion decisions</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('promotionAddModal')"></i>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="promotion-class-picker">Class</label>
+                <select class="form-input" id="promotion-class-picker">
+                    <option value="">Choose class</option>
+                    {% for r in records if active_tab == 'promotion' %}
+                        <option value="{{ r.id }}">{{ r.class_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('promotionAddModal')">Cancel</button>
+                <button type="button" class="primary-btn" onclick="openPickedPromotion()"><i class="ti ti-arrow-right"></i> Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="promotionRunModal">
+        <div class="modal-dialog modal-dialog-narrow">
+            <div class="modal-header">
+                <p class="form-heading">Promote to next year</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('promotionRunModal')"></i>
+            </div>
+            <p class="form-subheading">
+                Every enrolled student moves up one class — into the matching stream where one exists
+                (e.g. P.2 A → P.3 A), otherwise into the next plain class. Students marked
+                <strong>Repeating</strong> or <strong>Second sitting</strong> stay in their current class,
+                and <strong>Discontinued</strong> students are unenrolled. Primary 7 students being promoted
+                are marked as having completed primary school. This can be undone afterwards, in whole or
+                for a single student.
+            </p>
+            <form class="modal-form" action="{{ url_for('run_promotion') }}" method="post">
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('promotionRunModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Promote now</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="promotionUndoModal">
+        <div class="modal-dialog modal-dialog-narrow">
+            <div class="modal-header">
+                <p class="form-heading">Undo last promotion</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('promotionUndoModal')"></i>
+            </div>
+            <p class="form-subheading">
+                This moves every student from the last promotion run back to the class they were in
+                before it ran, and restores the decisions that were recorded for them.
+            </p>
+            <form class="modal-form" action="{{ url_for('undo_promotion') }}" method="post">
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('promotionUndoModal')">Cancel</button>
+                    <button type="submit" class="danger-btn"><i class="ti ti-refresh"></i> Undo promotion</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="bulkEnrollModal">
+        <div class="modal-dialog modal-dialog-wide">
+            <div class="modal-header">
+                <p class="form-heading">Bulk enroll students</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('bulkEnrollModal')"></i>
+            </div>
+            <p class="form-subheading">Select a class, choose as many students as you like, then enroll them all at once.</p>
+
+            <div class="bulk-stats-row">
+                <div class="bulk-stat-chip">
+                    <span class="bulk-stat-value">{{ enrolled_count }}</span>
+                    <span class="bulk-stat-label">Enrolled</span>
+                </div>
+                <div class="bulk-stat-chip">
+                    <span class="bulk-stat-value">{{ not_enrolled_count }}</span>
+                    <span class="bulk-stat-label">Not enrolled</span>
+                </div>
+            </div>
+
+            <form class="bulk-form" id="bulkEnrollForm" action="{{ url_for('new_enrollment') }}" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="bulk-enroll-class">Class</label>
+                    <select class="form-input" id="bulk-enroll-class" name="class_name">
+                        <option value="">Choose class</option>
+                        {% for c in classes %}<option value="{{ c.name }}">{{ c.name }}</option>{% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <div class="bulk-select-toolbar">
+                        <input type="search" class="form-input" id="bulk-enroll-search" placeholder="Search students">
+                        <div class="bulk-select-actions">
+                            <button type="button" class="link-btn" data-bulk-select="all">Select all</button>
+                        </div>
+                    </div>
+
+                    <div class="bulk-student-list" id="bulkStudentList">
+                        {% for s in bulk_students %}
+                        <label class="bulk-student-row" data-name="{{ s.name|lower }}" data-status="{{ 'enrolled' if s.status == 'Active' else 'not-enrolled' }}">
+                            <input type="checkbox" name="student_ids" value="{{ s.id }}">
+                            <span class="bulk-student-info">
+                                <span class="bulk-student-name">{{ s.name }}</span>
+                                <span class="bulk-student-meta">{{ s.registration_number }} · {{ s.class_name }}</span>
+                            </span>
+                            <span class="status-badge status-pending">Not enrolled</span>
+                        </label>
+                        {% else %}
+                        <p class="form-subheading">No students registered yet.</p>
+                        {% endfor %}
+                    </div>
+                    <p class="form-hint" id="bulkEnrollSelectedCount">0 students selected</p>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('bulkEnrollModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Enroll selected</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="bulkEnrollSummaryModal">
+        <div class="modal-dialog modal-dialog-narrow">
+            <div class="modal-header">
+                <p class="form-heading">Enrollment complete</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('bulkEnrollSummaryModal')"></i>
+            </div>
+            <div class="view-rows" id="bulkEnrollSummaryBody"></div>
+            <div class="form-actions">
+                <button type="button" class="primary-btn" id="bulkEnrollSummaryBtn"><i class="ti ti-check"></i> Done</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="classEditModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Edit class</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('classEditModal')"></i>
+            </div>
+            <form class="modal-form" id="classEditForm" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="class-edit-name">Name</label>
+                    <input class="form-input" type="text" id="class-edit-name" name="name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="class-edit-teacher">Teacher</label>
+                    <select class="form-input" id="class-edit-teacher" name="teacher">
+                        <option value="">No teacher assigned</option>
+                        {% for teacher in teachers %}<option value="{{ teacher }}">{{ teacher }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('classEditModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="subjectEditModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Edit subject</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('subjectEditModal')"></i>
+            </div>
+            <form class="modal-form" id="subjectEditForm" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="subject-edit-name">Subject</label>
+                    <input class="form-input" type="text" id="subject-edit-name" name="name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="subject-edit-class">Class</label>
+                    <select class="form-input" id="subject-edit-class" name="class_name">
+                        {% for c in classes %}<option value="{{ c.name }}">{{ c.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="subject-edit-mark">Maximum mark</label>
+                    <input class="form-input" type="number" id="subject-edit-mark" name="maximum_mark" min="1">
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-row">
+                        <input type="checkbox" id="subject-edit-compulsory" name="is_compulsory">
+                        <span>Compulsory (Major subject)</span>
+                    </label>
+                    <p class="form-hint">Compulsory subjects are graded with marks (B.O.T./Mid/E.O.T.) as Major subjects. Unchecked, this becomes an Other subject — still assessed each period, but scored with a letter grade on the report.</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="subject-edit-teacher">Teacher</label>
+                    <select class="form-input" id="subject-edit-teacher" name="teacher">
+                        <option value="">No teacher assigned</option>
+                        {% for teacher in teachers %}<option value="{{ teacher }}">{{ teacher }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('subjectEditModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="enrollmentEditModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Edit enrollment</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('enrollmentEditModal')"></i>
+            </div>
+            <form class="modal-form" id="enrollmentEditForm" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="enrollment-edit-class">Class</label>
+                    <select class="form-input" id="enrollment-edit-class" name="class_name">
+                        {% for c in classes %}<option value="{{ c.name }}">{{ c.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="enrollment-edit-students">Students</label>
+                    <select class="form-input multi-select" id="enrollment-edit-students" name="student_ids" multiple>
+                        {% for student in students %}
+                            <option value="{{ student.id }}">{{ student.name }} — {{ student.enrolled_class or "Not enrolled" }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="enrollment-edit-status">Status</label>
+                    <select class="form-input" id="enrollment-edit-status" name="status">
+                        <option value="Enrolled">Enrolled</option>
+                        <option value="Unenrolled">Unenrolled</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('enrollmentEditModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="viewModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading" id="viewModalTitle">Details</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('viewModal')"></i>
+            </div>
+            <div class="view-rows" id="viewModalBody"></div>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('viewModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="listModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading" id="listModalTitle">Students</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('listModal')"></i>
+            </div>
+            <div class="view-rows" id="listModalBody"></div>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('listModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="promotionModal">
+        <div class="modal-dialog modal-dialog-wide">
+            <div class="modal-header">
+                <p class="form-heading" id="promotionModalTitle">Promotion decisions</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('promotionModal')"></i>
+            </div>
+            <form class="modal-form" id="promotionForm" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="bulk-action">Promote all</label>
+                    <select class="form-input" id="bulk-action" name="bulk_action">
+                        <option value="">No bulk action</option>
+                        {% for action in promotion_actions %}<option value="{{ action }}">{{ action }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="promotion-students" id="promotionStudents"></div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('promotionModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save decisions</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="confirmDeleteModal">
+        <div class="modal-dialog modal-dialog-narrow">
+            <div class="modal-header">
+                <p class="form-heading">Confirm action</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('confirmDeleteModal')"></i>
+            </div>
+            <p class="form-subheading" id="confirmDeleteText"></p>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('confirmDeleteModal')">Cancel</button>
+                <button type="button" class="danger-btn" id="confirmDeleteBtn">Continue</button>
+            </div>
+        </div>
+    </div>
+
+{% endblock %}
+
+{% block scripts %}
+    <div id="academics-config"
+         data-class-edit-url-base="/academics/classes"
+         data-subject-edit-url-base="/academics/subjects"
+         data-enrollment-edit-url-base="/academics/enrollment"
+         data-promotion-url-base="/academics/promotion"
+         data-promotion-records="{{ (records if active_tab == 'promotion' else [])|tojson|forceescape }}"
+         data-promotion-actions="{{ promotion_actions|tojson|forceescape }}"
+         hidden></div>
+    <script src="{{ url_for('static', filename='js/academics-actions.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/academics-bulk-enroll.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,249 @@
+{% extends "base.html" %} {% block content %}
+
+<a href="{{ url_for('timetable') }}" class="back-link">
+    <i class="ti ti-arrow-left"></i> Back to timetables
+</a>
+
+<div class="profiles-toolbar">
+    <div class="profiles-title">
+        <p class="profiles-heading">{{ board.name }}</p>
+        <span class="count-badge">{{ board.classes|length }} classes</span>
+    </div>
+
+    <div class="profiles-actions">
+        <button type="button" class="icon-btn" title="Manage teacher key" onclick="openModal('legendModal')">
+                <i class="ti ti-users"></i>
+            </button>
+        <button type="button" class="icon-btn" title="Add period" onclick="openModal('newPeriodModal')">
+                <i class="ti ti-clock-plus"></i>
+            </button>
+        <a href="{{ url_for('print_timetable_board', board_id=board.id) }}" target="_blank" class="primary-btn">
+            <i class="ti ti-printer"></i> Download PDF
+        </a>
+    </div>
+</div>
+
+{% if not periods %}
+<div class="placeholder-panel">
+    <i class="ti ti-clock-plus placeholder-icon"></i>
+    <p class="placeholder-title">No periods yet</p>
+    <p class="placeholder-subtitle">Add your first time slot to start building the grid.</p>
+</div>
+{% elif board.layout == 'period_rows' %}
+<div class="timetable-wrap">
+    <table class="timetable-grid">
+        <thead>
+            <tr>
+                <th class="timetable-corner">Time</th>
+                {% for class_name in board.classes %}
+                <th>{{ class_name }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for day_block in grid %}
+            <tr class="timetable-day-row">
+                <td colspan="{{ board.classes|length + 1 }}">{{ day_block.day }}</td>
+            </tr>
+            {% for row in day_block.period_rows %}
+            <tr>
+                <th class="timetable-period-row-header">
+                    <div class="timetable-period-header">
+                        <span>{{ row.period.start }} - {{ row.period.end }}</span> {% if row.special and row.period.label %}<span class="timetable-period-label">{{ row.period.label }}</span>{% endif %} {% if day_block.day == days[0] %}
+                        <div class="timetable-period-tools">
+                            <form action="{{ url_for('move_timetable_period', board_id=board.id, period_id=row.period.id) }}" method="post">
+                                <input type="hidden" name="direction" value="up">
+                                <button type="submit" title="Move up"><i class="ti ti-chevron-up"></i></button>
+                            </form>
+                            <form action="{{ url_for('delete_timetable_period', board_id=board.id, period_id=row.period.id) }}" method="post" onsubmit="return confirm('Remove this period? Any subjects/teachers set for it will be cleared.');">
+                                <button type="submit" title="Remove period"><i class="ti ti-x"></i></button>
+                            </form>
+                            <form action="{{ url_for('move_timetable_period', board_id=board.id, period_id=row.period.id) }}" method="post">
+                                <input type="hidden" name="direction" value="down">
+                                <button type="submit" title="Move down"><i class="ti ti-chevron-down"></i></button>
+                            </form>
+                        </div>
+                        {% endif %}
+                    </div>
+                </th>
+                {% if row.special %}
+                <td class="timetable-special-cell timetable-special-cell-row" colspan="{{ board.classes|length }}">{{ row.label }}</td>
+                {% else %} {% for cell in row.cells %}
+                <td class="timetable-cell {% if cell.subject %}filled{% endif %}" onclick='openCellEditor({{ day_block.day|tojson }}, {{ cell.period_id }}, {{ cell.class_name|tojson }}, {{ cell.subject|tojson }}, {{ cell.teacher|tojson }})'>
+                    {% if cell.subject %}
+                    <span class="timetable-subject">{{ cell.subject }}</span>
+                    <span class="timetable-teacher">{{ cell.teacher }}</span> {% else %}
+                    <span class="timetable-cell-empty">+</span> {% endif %}
+                </td>
+                {% endfor %} {% endif %}
+            </tr>
+            {% endfor %} {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="timetable-wrap">
+    <table class="timetable-grid">
+        <thead>
+            <tr>
+                <th class="timetable-corner">Class</th>
+                {% for p in periods %} {% set is_assembly = p.label|lower == 'assembly' %}
+                <th class="{% if p.is_special and not is_assembly %}timetable-special-header{% endif %}">
+                    <div class="timetable-period-header">
+                        <span>{{ p.start }} - {{ p.end }}</span> {% if p.label and not is_assembly %}<span class="timetable-period-label">{{ p.label }}</span>{% endif %}
+                        <div class="timetable-period-tools">
+                            <form action="{{ url_for('move_timetable_period', board_id=board.id, period_id=p.id) }}" method="post">
+                                <input type="hidden" name="direction" value="up">
+                                <button type="submit" title="Move left"><i class="ti ti-chevron-left"></i></button>
+                            </form>
+                            <form action="{{ url_for('delete_timetable_period', board_id=board.id, period_id=p.id) }}" method="post" onsubmit="return confirm('Remove this period? Any subjects/teachers set for it will be cleared.');">
+                                <button type="submit" title="Remove period"><i class="ti ti-x"></i></button>
+                            </form>
+                            <form action="{{ url_for('move_timetable_period', board_id=board.id, period_id=p.id) }}" method="post">
+                                <input type="hidden" name="direction" value="down">
+                                <button type="submit" title="Move right"><i class="ti ti-chevron-right"></i></button>
+                            </form>
+                        </div>
+                    </div>
+                </th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for day_block in grid %}
+            <tr class="timetable-day-row">
+                <td colspan="{{ periods|length + 1 }}">{{ day_block.day }}</td>
+            </tr>
+            {% for row in day_block.class_rows %}
+            <tr>
+                <th class="timetable-class-name">{{ row.class_name }}</th>
+                {% for cell in row.cells %} {% if not cell.skip %} {% if cell.special %}
+                <td class="timetable-special-cell" rowspan="{{ cell.rowspan }}">{{ cell.label }}</td>
+                {% else %}
+                <td class="timetable-cell {% if cell.subject %}filled{% endif %}" onclick='openCellEditor({{ day_block.day|tojson }}, {{ cell.period_id }}, {{ row.class_name|tojson }}, {{ cell.subject|tojson }}, {{ cell.teacher|tojson }})'>
+                    {% if cell.subject %}
+                    <span class="timetable-subject">{{ cell.subject }}</span>
+                    <span class="timetable-teacher">{{ cell.teacher }}</span> {% else %}
+                    <span class="timetable-cell-empty">+</span> {% endif %}
+                </td>
+                {% endif %} {% endif %} {% endfor %}
+            </tr>
+            {% endfor %} {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %} {% if legend %}
+<div class="timetable-legend-preview">
+    <strong>Key:</strong> {% for entry in legend %}{{ entry.code }} – {{ entry.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+</div>
+{% endif %}
+
+<!-- Cell editor -->
+<div class="modal-overlay" id="cellEditorModal">
+    <div class="modal-dialog modal-dialog-narrow">
+        <div class="modal-header">
+            <p class="form-heading" id="cellEditorTitle">Edit period</p>
+            <i class="ti ti-x modal-close" onclick="closeModal('cellEditorModal')"></i>
+        </div>
+
+        <form class="modal-form" id="cellEditorForm" action="{{ url_for('save_timetable_cell', board_id=board.id) }}" method="post">
+            <input type="hidden" name="day" id="cellDay">
+            <input type="hidden" name="period_id" id="cellPeriodId">
+            <input type="hidden" name="class_name" id="cellClassName">
+
+            <div class="form-group">
+                <label class="form-label" for="cellSubject">Subject code</label>
+                <input class="form-input" type="text" id="cellSubject" name="subject" placeholder="e.g. MTC, ENG, SCI">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="cellTeacher">Teacher</label>
+                <select class="form-input" id="cellTeacher" name="teacher">
+                    <option value="">— No teacher —</option>
+                    {% for t in teachers %}
+                        <option value="{{ t.name }}">{{ t.name }}</option>
+                    {% endfor %}
+                </select>
+                <p class="form-hint">Pulled from Staff, so the name shown on the printed timetable is always accurate.</p>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="clearCellAndSubmit()">Clear</button>
+                <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- New period -->
+<div class="modal-overlay" id="newPeriodModal">
+    <div class="modal-dialog modal-dialog-narrow">
+        <div class="modal-header">
+            <p class="form-heading">Add period</p>
+            <i class="ti ti-x modal-close" onclick="closeModal('newPeriodModal')"></i>
+        </div>
+
+        <form class="modal-form" action="{{ url_for('new_timetable_period', board_id=board.id) }}" method="post">
+            <div class="form-group">
+                <label class="form-label" for="period-start">Start time</label>
+                <input class="form-input" type="text" id="period-start" name="start" placeholder="e.g. 8:00">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="period-end">End time</label>
+                <input class="form-input" type="text" id="period-end" name="end" placeholder="e.g. 9:00">
+            </div>
+            <div class="form-group">
+                <label class="checkbox-pill" style="width: fit-content;">
+                        <input type="checkbox" name="is_special" id="period-special" onchange="document.getElementById('period-label-group').hidden = !this.checked;">
+                        <span>This is a non-teaching period (Assembly, Break, Lunch)</span>
+                    </label>
+            </div>
+            <div class="form-group" id="period-label-group" hidden>
+                <label class="form-label" for="period-label">Label</label>
+                <input class="form-input" type="text" id="period-label" name="label" placeholder="e.g. Lunch">
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('newPeriodModal')">Cancel</button>
+                <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Add period</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Teacher key -->
+<div class="modal-overlay" id="legendModal">
+    <div class="modal-dialog">
+        <div class="modal-header">
+            <p class="form-heading">Teacher key</p>
+            <i class="ti ti-x modal-close" onclick="closeModal('legendModal')"></i>
+        </div>
+        <p class="form-subheading">These initials-to-name mappings show as the "Key" line at the bottom of the printed timetable.</p>
+
+        <div class="legend-list">
+            {% for entry in legend %}
+            <div class="legend-row">
+                <span class="legend-code">{{ entry.code }}</span>
+                <span>{{ entry.name }}</span>
+                <form action="{{ url_for('delete_timetable_legend_entry', board_id=board.id, code=entry.code) }}" method="post">
+                    <button type="submit" class="icon-btn icon-btn-danger" title="Remove"><i class="ti ti-trash"></i></button>
+                </form>
+            </div>
+            {% else %}
+            <p class="form-subheading">No teacher initials added yet.</p>
+            {% endfor %}
+        </div>
+
+        <form class="modal-form" action="{{ url_for('new_timetable_legend_entry', board_id=board.id) }}" method="post">
+            <div class="legend-add-row">
+                <input class="form-input" type="text" name="code" placeholder="Initials (e.g. AA)" style="max-width: 140px;">
+                <input class="form-input" type="text" name="name" placeholder="Full name">
+                <button type="submit" class="primary-btn"><i class="ti ti-plus"></i></button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %} {% block scripts %}
+<script src="{{ url_for('static', filename='js/timetable-board-actions.js') }}"></script>
+{% endblock %}

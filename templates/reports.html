@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+    <div class="profile-tabs">
+        <a href="{{ url_for('reports', tab='cards') }}"
+           class="profile-tab {% if active_tab == 'cards' %}active{% endif %}">Report Cards</a>
+        <a href="{{ url_for('reports', tab='published') }}"
+           class="profile-tab {% if active_tab == 'published' %}active{% endif %}">Published</a>
+        <a href="{{ url_for('reports', tab='marksheets') }}"
+           class="profile-tab {% if active_tab == 'marksheets' %}active{% endif %}">Mark Sheets</a>
+    </div>
+
+    <div class="profiles-toolbar">
+        <div class="profiles-title">
+            {% if selected_class %}
+                <p class="profiles-heading">{{ selected_class.name }} — {{ "Mark Sheets" if active_tab == "marksheets" else ("Published" if active_tab == "published" else "Report Cards") }}</p>
+                <span class="count-badge">{{ marksheet_data.external.students|length if active_tab == 'marksheets' and marksheet_data.external else total_count }}</span>
+            {% elif report_scope %}
+                <p class="profiles-heading">{{ report_scope }} — {{ "Published" if active_tab == "published" else "Report Cards" }}</p>
+                <span class="count-badge">{{ total_count }}</span>
+            {% else %}
+                <p class="profiles-heading">Classes</p>
+                <span class="count-badge">{{ active_tab == 'marksheets' and total_count or classes|length }}</span>
+            {% endif %}
+        </div>
+        <div class="profiles-actions">
+            {% if selected_class or report_scope %}
+                <a class="secondary-btn" href="{{ url_for('reports', tab=active_tab) }}"><i class="ti ti-arrow-left"></i> All Classes</a>
+                {% if active_tab != 'marksheets' %}
+                    <form class="search-box" method="get" action="{{ url_for('reports') }}">
+                        <input type="hidden" name="tab" value="{{ active_tab }}"><input type="hidden" name="class_id" value="{{ selected_class.id }}"><input type="hidden" name="sort" value="{{ sort }}">
+                        <i class="ti ti-search"></i><input type="search" name="q" value="{{ search_query }}" placeholder="Search">
+                    </form>
+                    <form class="sort-box" method="get" action="{{ url_for('reports') }}">
+                        <input type="hidden" name="tab" value="{{ active_tab }}"><input type="hidden" name="class_id" value="{{ selected_class.id }}">
+                        {% if search_query %}<input type="hidden" name="q" value="{{ search_query }}">{% endif %}
+                        <label for="report-sort">Sort by</label><select id="report-sort" name="sort" onchange="this.form.submit()">{% for option in sort_options %}<option value="{{ option.value }}" {% if sort == option.value %}selected{% endif %}>{{ option.label }}</option>{% endfor %}</select>
+                    </form>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+
+    {% if active_tab == 'marksheets' %}
+        {% if not selected_class %}
+        <div class="profiles-table-wrap">
+            <table class="profiles-table marksheet-class-table">
+                <thead><tr><th>Class</th><th>Students</th><th>Teacher</th><th class="col-action">Download mark sheets</th></tr></thead>
+                <tbody>
+                    {% for c in classes_page %}
+                    <tr>
+                        <td class="name-cell"><a class="academic-class-link" href="{{ url_for('reports', tab='marksheets', class_id=c.id) }}">{{ c.name }}</a></td>
+                        <td>{{ c.enrolled_students }}</td>
+                        <td>{{ c.teacher or '—' }}</td>
+                        <td class="col-action">
+                            <a class="icon-btn" title="Open mark sheet downloads" href="{{ url_for('reports', tab='marksheets', class_id=c.id) }}"><i class="ti ti-download"></i></a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "_pagination.html" %}
+        {% else %}
+        <div class="marksheet-download-grid">
+            <div class="marksheet-download-card">
+                <div><strong>B.O.T. Mark Sheet</strong><span>Beginning of term class analysis</span></div>
+                <button type="button" class="primary-btn marksheet-download-btn" data-marksheet-type="bot"><i class="ti ti-download"></i> Download</button>
+            </div>
+            <div class="marksheet-download-card">
+                <div><strong>Mid Mark Sheet</strong><span>Mid-term class analysis</span></div>
+                <button type="button" class="primary-btn marksheet-download-btn" data-marksheet-type="mid"><i class="ti ti-download"></i> Download</button>
+            </div>
+            <div class="marksheet-download-card">
+                <div><strong>Internal Mark Sheet</strong><span>End-of-term internal marks</span></div>
+                <button type="button" class="primary-btn marksheet-download-btn" data-marksheet-type="internal"><i class="ti ti-download"></i> Download</button>
+            </div>
+            <div class="marksheet-download-card">
+                <div><strong>External Mark Sheet</strong><span>End-of-term external marks</span></div>
+                <button type="button" class="primary-btn marksheet-download-btn" data-marksheet-type="external"><i class="ti ti-download"></i> Download</button>
+            </div>
+        </div>
+        <div id="marksheetPrintContainer" aria-hidden="true"></div>
+        {% endif %}
+    {% elif not selected_class and not report_scope %}
+    <div class="profiles-table-wrap">
+        <table class="profiles-table">
+            <thead><tr><th>Class</th><th>Students</th><th>Reports</th><th>Teacher</th><th class="col-action">Actions</th></tr></thead>
+            <tbody>
+                {% for row in report_scope_rows %}
+                <tr class="{% if row.is_group %}report-scope-row{% endif %}">
+                    <td class="name-cell">
+                        {% if row.is_group %}
+                            <a class="academic-class-link" href="{{ url_for('reports', tab=active_tab, scope=row.scope) }}">{{ row.name }}</a>
+                        {% else %}
+                            <a class="academic-class-link" href="{{ url_for('reports', tab=active_tab, class_id=row.class_id) }}">{{ row.name }}</a>
+                        {% endif %}
+                    </td>
+                    <td>{{ row.students }}</td>
+                    <td>{{ row.reports }}</td>
+                    <td>{{ row.teacher or '—' }}</td>
+                    <td class="col-action">
+                        {% if active_tab == 'cards' %}
+                            <button type="button" class="icon-btn report-scope-generate" data-report-scope="{{ row.scope }}" title="Generate reports for {{ row.name }}" aria-label="Generate reports for {{ row.name }}"><i class="ti ti-plus"></i></button>
+                        {% else %}
+                            {% if row.is_group %}—{% else %}<a class="icon-btn" title="Open reports" href="{{ url_for('reports', tab=active_tab, class_id=row.class_id) }}"><i class="ti ti-arrow-right"></i></a>{% endif %}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="profiles-table-wrap">
+        <table class="profiles-table">
+            <thead>
+                {% if active_tab == 'published' %}<tr><th>Class</th><th>Students</th><th>Type</th><th>Date publish</th><th>Generated</th><th class="col-action">Actions</th></tr>
+                {% else %}<tr><th>Class</th><th>Students</th><th>Type</th><th>Date and time created</th><th>Status</th><th>Generated</th><th class="col-action">Actions</th></tr>{% endif %}
+            </thead>
+            <tbody>
+            {% for r in records %}
+                <tr>
+                    <td class="name-cell"><a class="academic-class-link" href="{{ url_for('reports', tab=active_tab, class_id=selected_class.id) }}">{{ r.class_name }}</a></td>
+                    <td>
+                        {% if r.students %}
+                            <div class="report-student-names">
+                                {% for student in r.students %}
+                                    <span>{{ student.name }}</span>{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <span class="muted-text">—</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ r.report_type }}</td><td>{{ r.published_at if active_tab == 'published' else r.created_at }}</td>
+                    {% if active_tab != 'published' %}<td><span class="status-badge {% if r.status == 'Generated' %}status-active{% else %}status-pending{% endif %}">{{ r.status }}</span></td>{% endif %}
+                    <td><button type="button" class="link-btn" data-report-action="preview" data-record="{{ r|tojson|forceescape }}">{{ r.generated_count }}</button></td>
+                    <td class="col-action"><div class="row-actions">
+                    {% if active_tab == 'cards' %}
+                        <button type="button" class="icon-btn" title="View" data-report-action="preview" data-record="{{ r|tojson|forceescape }}"><i class="ti ti-eye"></i></button>
+                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" data-report-action="delete" data-form-id="report-delete-form-{{ r.id }}" data-label="{{ r.class_name }}"><i class="ti ti-trash"></i></button>
+                        <button type="button" class="icon-btn" title="Publish" data-report-action="publish" data-record="{{ r|tojson|forceescape }}"><i class="ti ti-send"></i></button>
+                        <form id="report-delete-form-{{ r.id }}" action="{{ url_for('delete_report', report_id=r.id) }}" method="post" hidden><input type="hidden" name="tab" value="cards"></form>
+                    {% else %}
+                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" data-report-action="delete" data-form-id="published-delete-form-{{ r.id }}" data-label="{{ r.class_name }}"><i class="ti ti-trash"></i></button>
+                        <form id="published-delete-form-{{ r.id }}" action="{{ url_for('delete_report', report_id=r.id) }}" method="post" hidden><input type="hidden" name="tab" value="published"></form>
+                    {% endif %}
+                    </div></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if selected_class or report_scope %}{% include "_pagination.html" %}{% endif %}
+    {% endif %}
+
+    <div class="modal-overlay" id="generateReportModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Generate report</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('generateReportModal')"></i>
+            </div>
+            <form class="modal-form" action="{{ url_for('generate_report') }}" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="report-type">Type</label>
+                    <select class="form-input" id="report-type" name="report_type">
+                        <option value="">Choose type</option>
+                        {% for type in report_types %}<option value="{{ type }}">{{ type }}</option>{% endfor %}
+                    </select>
+                </div>
+                <input type="hidden" id="report-class-scope" name="class_scope" value="">
+                <div class="form-group">
+                    <label class="form-label">Scope</label>
+                    <div class="form-input" id="report-scope-label" style="display:flex;align-items:center;min-height:42px;background:var(--surface-muted, #f6f7f9);">Choose a row above</div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('generateReportModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Generate</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="publishReportModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Publish report</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('publishReportModal')"></i>
+            </div>
+            <form class="modal-form" id="publishReportForm" method="post">
+                <label class="checkbox-row form-group">
+                    <input type="checkbox" name="publish_here" checked>
+                    <span>Publish here only</span>
+                </label>
+                <label class="checkbox-row form-group">
+                    <input type="checkbox" name="publish_sms">
+                    <span>Publish to SMS</span>
+                </label>
+                <label class="checkbox-row form-group">
+                    <input type="checkbox" id="publish-email-toggle" name="publish_email">
+                    <span>Publish to email</span>
+                </label>
+                <div class="form-group" id="publish-email-field" hidden>
+                    <label class="form-label" for="publish-email">Email</label>
+                    <input class="form-input" type="email" id="publish-email" name="email" autocomplete="email">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('publishReportModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-send"></i> Publish and send</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="report-preview-overlay" id="reportPreviewOverlay">
+        <div class="report-preview-shell">
+            <div class="report-preview-header">
+                <div>
+                    <p class="report-preview-title" id="reportPreviewTitle">Report cards</p>
+                    <p class="report-preview-subtitle" id="reportPreviewSubtitle"></p>
+                </div>
+                <button type="button" class="icon-btn" id="reportPreviewClose" title="Close"><i class="ti ti-x"></i></button>
+            </div>
+            <div class="report-preview-tabs">
+                <button type="button" class="report-preview-tab active" data-preview-mode="individual">Individual</button>
+                <button type="button" class="report-preview-tab" data-preview-mode="all">All-in-One</button>
+            </div>
+            <div class="report-preview-body">
+                <aside class="report-student-panel">
+                    <div class="search-box report-search">
+                        <i class="ti ti-search"></i>
+                        <input type="search" id="reportStudentSearch" placeholder="Search">
+                    </div>
+                    <div class="report-student-list" id="reportStudentList"></div>
+                </aside>
+                <section class="report-document-area">
+                    <div class="report-document-actions">
+                        <span id="reportPageCount">1 Page</span>
+                        <button type="button" class="icon-btn" id="reportDownloadBtn" title="Download"><i class="ti ti-download"></i></button>
+                    </div>
+                    <div class="report-document" id="reportDocument"></div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="confirmDeleteModal">
+        <div class="modal-dialog modal-dialog-narrow">
+            <div class="modal-header">
+                <p class="form-heading">Remove report?</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('confirmDeleteModal')"></i>
+            </div>
+            <p class="form-subheading" id="confirmDeleteText"></p>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('confirmDeleteModal')">Cancel</button>
+                <button type="button" class="danger-btn" id="confirmDeleteBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        const REPORT_URL_BASE = "/reports";
+        const SCHOOL_NAME = {{ school_name | tojson }};
+        const SCHOOL_INFO = {{ school_info | tojson }};
+        const CURRENT_TERM_NAME = {{ (current_term.name if current_term else "") | tojson }};
+        const NEXT_TERM_START = {{ next_term_start | tojson }};
+        const HEAD_TEACHER = {{ head_teacher | tojson }};
+        const TERM_TITLE_WORD = {{ term_title.word | tojson }};
+        const TERM_TITLE_YEAR = {{ term_title.year | tojson }};
+        const MARKSHEET_DATA = {{ marksheet_data | tojson }};
+        const ACTIVE_REPORT_TAB = {{ active_tab | tojson }};
+        document.addEventListener("click", (event) => {
+            const button = event.target.closest(".report-scope-generate");
+            if (!button) return;
+            const scope = button.dataset.reportScope || "";
+            document.getElementById("report-class-scope").value = scope;
+            document.getElementById("report-scope-label").textContent = scope;
+            document.getElementById("report-type").value = "";
+            openModal("generateReportModal");
+        });
+    </script>
+    <!-- Load html2canvas for capturing DOM elements as images -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- Load jsPDF for PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="{{ url_for('static', filename='js/reports-actions.js') }}?v=8.3"></script>
+    {% if active_tab == 'marksheets' and selected_class %}
+    <script src="{{ url_for('static', filename='js/marksheets-actions.js') }}?v=8.3"></script>
+    {% endif %}
+{% endblock %}

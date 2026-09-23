@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+    <div class="profile-tabs">
+        <a href="{{ url_for('attendance') }}" class="profile-tab">Attendance</a>
+        <a href="{{ url_for('events') }}" class="profile-tab active">Events</a>
+    </div>
+
+    <div class="profiles-toolbar">
+        <div class="profiles-title">
+            <p class="profiles-heading">All Events</p>
+            <span class="count-badge">{{ total_count }}</span>
+        </div>
+
+        <div class="profiles-actions">
+            <form class="search-box" method="get" action="{{ url_for('events') }}">
+                <i class="ti ti-search"></i>
+                <input type="search" name="q" value="{{ search_query }}" placeholder="Search">
+            </form>
+            <button type="button" class="primary-btn" onclick="openModal('eventAddModal')">
+                <i class="ti ti-plus"></i> New event
+            </button>
+        </div>
+    </div>
+
+    <div class="profiles-table-wrap">
+        <table class="profiles-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Start date to end date</th>
+                    <th>Audience</th>
+                    <th>Teacher in charge</th>
+                    <th>Activity</th>
+                    <th class="col-action">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in records %}
+                    <tr>
+                        <td class="name-cell">{{ r.name }}</td>
+                        <td>{{ r.date_range }}</td>
+                        <td>{{ r.audience }}</td>
+                        <td>{{ r.teacher or "—" }}</td>
+                        <td>
+                            <span class="status-badge {% if r.activity == 'Active' %}status-active{% elif r.activity == 'Passed' %}status-muted{% else %}status-pending{% endif %}">
+                                {{ r.activity }}
+                            </span>
+                        </td>
+                        <td class="col-action">
+                            <div class="row-actions">
+                                <button type="button" class="icon-btn" title="View"
+                                        data-event-action="view"
+                                        data-record="{{ r|tojson|forceescape }}"><i class="ti ti-eye"></i></button>
+                                <button type="button" class="icon-btn" title="Edit"
+                                        data-event-action="edit"
+                                        data-record="{{ r|tojson|forceescape }}"><i class="ti ti-edit"></i></button>
+                                <button type="button" class="icon-btn icon-btn-danger" title="Delete"
+                                        data-event-action="delete"
+                                        data-form-id="event-delete-form-{{ r.id }}"
+                                        data-label="{{ r.name }}"><i class="ti ti-trash"></i></button>
+                                <form id="event-delete-form-{{ r.id }}"
+                                      action="{{ url_for('delete_event', event_id=r.id) }}" method="post" hidden></form>
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include "_pagination.html" %}
+
+    <div class="modal-overlay" id="eventAddModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">New event</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('eventAddModal')"></i>
+            </div>
+            <form class="modal-form" action="{{ url_for('new_event') }}" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="event-name">Name</label>
+                    <input class="form-input" type="text" id="event-name" name="name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="event-start">Start date</label>
+                    <input class="form-input" type="text" id="event-start" name="start_date" placeholder="DD-MM-YYYY">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="event-end">End date</label>
+                    <input class="form-input" type="text" id="event-end" name="end_date" placeholder="DD-MM-YYYY">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="event-audience-mode">Audience</label>
+                    <select class="form-input audience-mode" id="event-audience-mode" name="audience_mode">
+                        <option value="Whole school">Whole school</option>
+                        <option value="Classes">Classes</option>
+                    </select>
+                </div>
+                <div class="form-group audience-classes-field" hidden>
+                    <label class="form-label" for="event-audience-classes">Classes</label>
+                    <select class="form-input multi-select" id="event-audience-classes" name="audience_classes" multiple>
+                        {% for c in classes %}
+                            <option value="{{ c.name }}">{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="event-teacher">Teacher in charge</label>
+                    <select class="form-input" id="event-teacher" name="teacher">
+                        <option value="">No teacher selected</option>
+                        {% for teacher in teachers %}
+                            <option value="{{ teacher }}">{{ teacher }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('eventAddModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Add event</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="eventEditModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Edit event</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('eventEditModal')"></i>
+            </div>
+            <form class="modal-form" id="eventEditForm" method="post">
+                <div class="form-group">
+                    <label class="form-label" for="event-edit-name">Name</label>
+                    <input class="form-input" type="text" id="event-edit-name" name="name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="event-edit-start">Start date</label>
+                    <input class="form-input" type="text" id="event-edit-start" name="start_date">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="event-edit-end">End date</label>
+                    <input class="form-input" type="text" id="event-edit-end" name="end_date">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="event-edit-audience-mode">Audience</label>
+                    <select class="form-input audience-mode" id="event-edit-audience-mode" name="audience_mode">
+                        <option value="Whole school">Whole school</option>
+                        <option value="Classes">Classes</option>
+                    </select>
+                </div>
+                <div class="form-group audience-classes-field" hidden>
+                    <label class="form-label" for="event-edit-audience-classes">Classes</label>
+                    <select class="form-input multi-select" id="event-edit-audience-classes" name="audience_classes" multiple>
+                        {% for c in classes %}
+                            <option value="{{ c.name }}">{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="event-edit-teacher">Teacher in charge</label>
+                    <select class="form-input" id="event-edit-teacher" name="teacher">
+                        <option value="">No teacher selected</option>
+                        {% for teacher in teachers %}
+                            <option value="{{ teacher }}">{{ teacher }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('eventEditModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="eventViewModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading" id="eventViewTitle">Event details</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('eventViewModal')"></i>
+            </div>
+            <div class="view-rows" id="eventViewBody"></div>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('eventViewModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="confirmDeleteModal">
+        <div class="modal-dialog modal-dialog-narrow">
+            <div class="modal-header">
+                <p class="form-heading">Remove event?</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('confirmDeleteModal')"></i>
+            </div>
+            <p class="form-subheading" id="confirmDeleteText"></p>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('confirmDeleteModal')">Cancel</button>
+                <button type="button" class="danger-btn" id="confirmDeleteBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        const EVENT_URL_BASE = "/events";
+    </script>
+    <script src="{{ url_for('static', filename='js/events-actions.js') }}"></script>
+{% endblock %}

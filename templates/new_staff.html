@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+    <a href="{{ url_for('profiles', tab='staff') }}" class="back-link">
+        <i class="ti ti-arrow-left"></i> Back to staff
+    </a>
+
+    <div class="form-card">
+        <p class="form-heading">New staff</p>
+        <p class="form-subheading">The account is created as pending — status shows "Account not activated yet" until they log in for the first time.</p>
+
+        <form method="post">
+            <div class="form-group">
+                <label class="form-label" for="name">Full name</label>
+                <input class="form-input" type="text" id="name" name="name" value="{{ form.name }}" placeholder="e.g. Nakato Diana">
+                {% if errors.name %}<p class="form-error">{{ errors.name }}</p>{% endif %}
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="email">Email</label>
+                <input class="form-input" type="email" id="email" name="email" value="{{ form.email }}" placeholder="name@school.org">
+                {% if errors.email %}<p class="form-error">{{ errors.email }}</p>{% endif %}
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="phone">Phone <span class="optional-tag">optional</span></label>
+                <input class="form-input" type="text" id="phone" name="phone" value="{{ form.phone }}" placeholder="+256 7...">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="role">Role</label>
+                <select class="form-input" id="role" name="role">
+                    <option value="teacher" {% if form.role == 'teacher' %}selected{% endif %}>Teacher</option>
+                    <option value="admin" {% if form.role == 'admin' %}selected{% endif %}>Admin</option>
+                </select>
+            </div>
+
+            <div class="form-actions">
+                <a href="{{ url_for('profiles', tab='staff') }}" class="secondary-btn">Cancel</a>
+                <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Add staff</button>
+            </div>
+        </form>
+    </div>
+
+{% endblock %}

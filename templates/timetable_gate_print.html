@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Gate and Last Pickup Rota</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 24px;
+            color: #111;
+        }
+        
+        .tt-toolbar {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 12px;
+        }
+        
+        .tt-download-btn {
+            background: #1D9E75;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        
+        .tt-download-btn:hover {
+            background: #085041;
+        }
+        
+        .page-frame {
+            border: 2px dashed #444;
+            padding: 20px;
+        }
+        
+        .gate-title {
+            font-size: 20px;
+            font-weight: 800;
+            text-decoration: underline;
+            margin: 0 0 16px;
+        }
+        
+        table.gate-grid {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        
+        table.gate-grid th,
+        table.gate-grid td {
+            border: 1px solid #999;
+            padding: 8px 10px;
+            text-align: left;
+            vertical-align: top;
+        }
+        
+        table.gate-grid thead th {
+            background: #D9E3F5;
+            font-weight: 700;
+        }
+        
+        .gate-week-row-odd {
+            background: #FBE3D1;
+        }
+        
+        .gate-week-row-even {
+            background: #FFFFFF;
+        }
+        
+        .gate-week-label {
+            font-weight: 700;
+        }
+        
+        .gate-week-range {
+            display: block;
+            font-weight: 400;
+            font-size: 11px;
+        }
+        
+        .gate-eid {
+            font-style: italic;
+        }
+        
+        @media print {
+            .tt-toolbar {
+                display: none;
+            }
+            body {
+                margin: 8px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="tt-toolbar">
+        <button class="tt-download-btn" onclick="window.print()">Download PDF</button>
+    </div>
+
+    <div class="page-frame">
+        <p class="gate-title">GATE AND LAST PICK UP FROM 6:00PM</p>
+
+        <table class="gate-grid">
+            <thead>
+                <tr>
+                    <th></th>
+                    {% for day in gate_days %}
+                    <th>{{ day|upper }}</th>{% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for week in gate_weeks %}
+                <tr class="{% if loop.index is odd %}gate-week-row-odd{% else %}gate-week-row-even{% endif %}">
+                    <td>
+                        <span class="gate-week-label">{{ week.label }}</span>
+                        <span class="gate-week-range">{{ week.date_range }}</span>
+                    </td>
+                    {% for day in gate_days %} {% set person = week.days.get(day, "") %}
+                    <td class="{% if person == 'Eid Day' %}gate-eid{% endif %}">{{ person }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+</body>
+
+</html>

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>{{ board.name }}</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 24px;
+            color: #111;
+        }
+        
+        .tt-toolbar {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 12px;
+        }
+        
+        .tt-download-btn {
+            background: #1D9E75;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        
+        .tt-download-btn:hover {
+            background: #085041;
+        }
+        
+        .tt-title {
+            text-align: center;
+            font-size: 20px;
+            font-weight: 800;
+            text-transform: uppercase;
+            margin: 0 0 4px;
+        }
+        
+        .tt-subtitle {
+            text-align: center;
+            font-size: 13px;
+            color: #444;
+            margin: 0 0 18px;
+        }
+        
+        table.tt-grid {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+        }
+        
+        table.tt-grid th,
+        table.tt-grid td {
+            border: 1px solid #000;
+            padding: 5px 6px;
+            text-align: center;
+            vertical-align: middle;
+        }
+        
+        table.tt-grid thead th {
+            background: #BFE3F0;
+            font-weight: 700;
+            font-size: 11px;
+        }
+        
+        .tt-period-time {
+            display: block;
+            font-weight: 700;
+        }
+        
+        .tt-period-label {
+            display: block;
+            font-weight: 400;
+            font-size: 10px;
+        }
+        
+        .tt-day-row td {
+            background: #444;
+            color: #fff;
+            font-weight: 800;
+            text-align: left;
+            padding: 6px 10px;
+            font-size: 13px;
+            text-transform: uppercase;
+        }
+        
+        .tt-class-name {
+            background: #F2F2F2;
+            font-weight: 700;
+            text-align: left;
+            white-space: nowrap;
+        }
+        
+        .tt-special-cell {
+            background: #E6E6E6;
+            font-weight: 700;
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+        }
+        
+        .tt-special-cell-row {
+            writing-mode: horizontal-tb;
+            text-orientation: initial;
+        }
+        
+        .tt-subject {
+            display: block;
+            font-weight: 700;
+        }
+        
+        .tt-teacher {
+            display: block;
+            font-size: 10px;
+            color: #333;
+        }
+        
+        .tt-key {
+            margin-top: 16px;
+            font-size: 10px;
+            line-height: 1.6;
+        }
+        
+        .tt-key strong {
+            font-weight: 700;
+        }
+        
+        @media print {
+            .tt-toolbar {
+                display: none;
+            }
+            body {
+                margin: 8px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="tt-toolbar">
+        <button class="tt-download-btn" onclick="window.print()">Download PDF</button>
+    </div>
+
+    <p class="tt-title">{{ school_name }}{% if school_info.type %} {{ school_info.type }}{% endif %}</p>
+    <p class="tt-subtitle">Time table: {{ board.name }}</p>
+
+    {% if not periods %}
+    <p>No periods have been added to this timetable yet.</p>
+    {% elif board.layout == 'period_rows' %}
+    <table class="tt-grid">
+        <thead>
+            <tr>
+                <th style="width: 90px;">Time</th>
+                {% for class_name in board.classes %}
+                <th>{{ class_name }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for day_block in grid %}
+            <tr class="tt-day-row">
+                <td colspan="{{ board.classes|length + 1 }}">{{ day_block.day }}</td>
+            </tr>
+            {% for row in day_block.period_rows %}
+            <tr>
+                <th class="tt-class-name">
+                    <span class="tt-period-time">{{ row.period.start }}<br>{{ row.period.end }}</span> {% if row.special and row.period.label %}<span class="tt-period-label">{{ row.period.label }}</span>{% endif %}
+                </th>
+                {% if row.special %}
+                <td class="tt-special-cell tt-special-cell-row" colspan="{{ board.classes|length }}">{{ row.label }}</td>
+                {% else %} {% for cell in row.cells %}
+                <td>
+                    {% if cell.subject %}
+                    <span class="tt-subject">{{ cell.subject }}</span>
+                    <span class="tt-teacher">{{ cell.teacher }}</span> {% endif %}
+                </td>
+                {% endfor %} {% endif %}
+            </tr>
+            {% endfor %} {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <table class="tt-grid">
+        <thead>
+            <tr>
+                <th style="width: 90px;">Class</th>
+                {% for p in periods %}
+                <th>
+                    {% set is_assembly = p.label|lower == 'assembly' %}
+                    <span class="tt-period-time">{{ p.start }}<br>{{ p.end }}</span> {% if p.label and not is_assembly %}<span class="tt-period-label">{{ p.label }}</span>{% endif %}
+                </th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for day_block in grid %}
+            <tr class="tt-day-row">
+                <td colspan="{{ periods|length + 1 }}">{{ day_block.day }}</td>
+            </tr>
+            {% for row in day_block.class_rows %}
+            <tr>
+                <th class="tt-class-name">{{ row.class_name }}</th>
+                {% for cell in row.cells %} {% if not cell.skip %} {% if cell.special %}
+                <td class="tt-special-cell" rowspan="{{ cell.rowspan }}">{{ cell.label }}</td>
+                {% else %}
+                <td>
+                    {% if cell.subject %}
+                    <span class="tt-subject">{{ cell.subject }}</span>
+                    <span class="tt-teacher">{{ cell.teacher }}</span> {% endif %}
+                </td>
+                {% endif %} {% endif %} {% endfor %}
+            </tr>
+            {% endfor %} {% endfor %}
+        </tbody>
+    </table>
+    {% endif %} {% if legend %}
+    <p class="tt-key">
+        <strong>KEY:</strong> {% for entry in legend %}{{ entry.code }} – {{ entry.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+    </p>
+    {% endif %}
+
+</body>
+
+</html>

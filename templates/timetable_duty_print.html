@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Daily Duty Rota</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 24px;
+            color: #111;
+        }
+        
+        .tt-toolbar {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 12px;
+        }
+        
+        .tt-download-btn {
+            background: #1D9E75;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        
+        .tt-download-btn:hover {
+            background: #085041;
+        }
+        
+        .tt-title {
+            text-align: center;
+            font-size: 15px;
+            font-weight: 700;
+            margin: 0 0 2px;
+        }
+        
+        .tt-subtitle {
+            text-align: center;
+            font-size: 14px;
+            font-weight: 700;
+            margin: 0 0 18px;
+        }
+        
+        table.duty-grid {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        
+        table.duty-grid th,
+        table.duty-grid td {
+            border: 1px solid #000;
+            padding: 8px 10px;
+            text-align: left;
+            vertical-align: top;
+        }
+        
+        table.duty-grid thead th {
+            background: #EDEDED;
+            font-weight: 700;
+            text-align: center;
+        }
+        
+        .duty-shift-time {
+            display: block;
+            font-weight: 400;
+            font-size: 11px;
+        }
+        
+        .duty-day {
+            font-weight: 700;
+        }
+        
+        .duty-name {
+            display: block;
+        }
+        
+        @media print {
+            .tt-toolbar {
+                display: none;
+            }
+            body {
+                margin: 8px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="tt-toolbar">
+        <button class="tt-download-btn" onclick="window.print()">Download PDF</button>
+    </div>
+
+    <p class="tt-title">{{ school_name }}</p>
+    <p class="tt-subtitle">DAILY DUTY ROTA FOR NATIONAL SECTION TERM 2 2026</p>
+
+    <table class="duty-grid">
+        <thead>
+            <tr>
+                <th>Day</th>
+                {% for shift in duty_shifts %}
+                <th>{{ shift.label|upper }}<span class="duty-shift-time">({{ shift.time }})</span></th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for day in duty_days %}
+            <tr>
+                <td class="duty-day">{{ day|upper }}</td>
+                {% for shift in duty_shifts %} {% set names = duty_rota.get(day, {}).get(shift.id, []) %}
+                <td>
+                    {% for name in names %}<span class="duty-name">{{ name }}</span>{% else %}&nbsp;{% endfor %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+</body>
+
+</html>

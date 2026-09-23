@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero-banner">
+    <div class="hero-copy">
+        <span>Academic Year {{ academic_year_label or '2026–2027' }}</span>
+        <h2>Overall Student Management System Dashboard</h2>
+        <a class="hero-btn" href="{{ url_for('reports') }}">Get Access <i class="ti ti-arrow-up-right"></i></a>
+    </div>
+    <div class="hero-art"><i class="ti ti-chart-dots-3"></i><i class="ti ti-chart-bar"></i><i class="ti ti-settings"></i></div>
+</section>
+
+<div class="dashboard-kpis">
+    {% for stat in stats %}
+    <div class="kpi-card kpi-{{ loop.index }}">
+        <div class="kpi-icon"><i class="ti {{ ['ti-users','ti-school','ti-calendar-check','ti-layout-grid'][loop.index0] }}"></i></div>
+        <div class="kpi-body"><span>{{ stat.label }}</span><strong>{{ stat.value }}</strong><small>{{ stat.note or 'Current overview' }}</small></div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="dashboard-grid">
+    <div class="dash-carousel" data-dash-carousel data-autoplay="6000">
+        <div class="dash-carousel-track">
+            <section class="dashboard-card attendance-panel dash-slide">
+                <div class="panel-head">
+                    <div><h3>Attendance Overview</h3><p>Actual class attendance for the last 14 days</p></div>
+                    <a href="{{ url_for('attendance', view='records') }}" class="panel-select">Recorded data <i class="ti ti-database-check"></i></a>
+                </div>
+                {% set has_attendance = attendance_trend|selectattr('value', 'ne', none)|list|length > 0 %}
+                {% if has_attendance %}
+                <div class="attendance-chart">
+                    <div class="chart-grid"><span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span></div>
+                    <div class="chart-bars">
+                        {% for point in attendance_trend %}
+                        <div class="chart-column" title="{{ point.label }}: {{ point.value if point.value is not none else 'No register' }}{% if point.value is not none %}%{% endif %}">
+                            {% if point.value is not none %}<div class="chart-bar" style="height:{{ point.value }}%"></div>{% else %}<div class="chart-bar chart-bar-empty"></div>{% endif %}
+                            <small>{{ point.label }}</small>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="chart-empty"><i class="ti ti-calendar-off"></i><strong>No attendance data yet</strong><span>Mark class attendance to populate this chart.</span></div>
+                {% endif %}
+            </section>
+
+            <section class="dashboard-card distribution-panel dash-slide">
+                <div class="panel-head"><div><h3>Student Distribution</h3><p>Students currently assigned to primary sections</p></div></div>
+                <div class="distribution-content">
+                    <div class="donut{% if unassigned_students %} has-unassigned{% endif %}"{% if unassigned_students %} style="--lower: {{ lower_percent }}%; --upper: {{ upper_percent }}%; --unassigned: {{ unassigned_percent }}%;"{% else %} style="--lower: {{ lower_percent }}%; --upper: {{ upper_percent }}%;"{% endif %}><div><strong>{{ total_students }}</strong><span>Students</span></div></div>
+                    <div class="legend">
+                        <div><i class="dot green"></i><span>Lower Primary</span><strong>{{ lower_students }}{% if total_students %} ({{ lower_percent|round(0)|int }}%){% endif %}</strong></div>
+                        <div><i class="dot orange"></i><span>Upper Primary</span><strong>{{ upper_students }}{% if total_students %} ({{ upper_percent|round(0)|int }}%){% endif %}</strong></div>
+                        {% if unassigned_students %}<div><i class="dot gray"></i><span>Unassigned</span><strong>{{ unassigned_students }}{% if total_students %} ({{ unassigned_percent|round(0)|int }}%){% endif %}</strong></div>{% endif %}
+                    </div>
+                </div>
+            </section>
+        </div>
+        <button type="button" class="carousel-arrow carousel-prev" aria-label="Previous panel"><i class="ti ti-chevron-left"></i></button>
+        <button type="button" class="carousel-arrow carousel-next" aria-label="Next panel"><i class="ti ti-chevron-right"></i></button>
+        <div class="carousel-dots"></div>
+    </div>
+
+    <div class="dash-carousel" data-dash-carousel data-autoplay="6000">
+        <div class="dash-carousel-track">
+            <section class="dashboard-card activity-panel dash-slide">
+                <div class="panel-head"><div><h3>Recent Activities</h3><p>Latest student, attendance and report actions recorded in the system</p></div></div>
+                {% for activity in recent_activities %}
+                <div class="activity-row">
+                    <div class="activity-icon"><i class="ti {{ activity.icon }}"></i></div>
+                    <div><strong>{{ activity.title }}</strong><span>{{ activity.subtitle }}</span></div>
+                    <time>{{ activity.time }}</time>
+                </div>
+                {% else %}<div class="empty-state">No recent activity yet.</div>{% endfor %}
+            </section>
+
+            <section class="dashboard-card events-panel dash-slide">
+                <div class="panel-head"><div><h3>Upcoming Events</h3><p>What's coming next</p></div><a href="{{ url_for('events') }}" class="mini-link">View all</a></div>
+                {% for event in events[:5] %}
+                <div class="upcoming-row"><div class="date-tile"><strong>{{ event.date_label.split('-')[0] if event.date_label else '—' }}</strong><span>{{ event.date_label.split('-')[-1] if event.date_label else '' }}</span></div><div><strong>{{ event.title }}</strong><span>School event</span></div><em>Upcoming</em></div>
+                {% else %}<div class="empty-state">No upcoming events.</div>{% endfor %}
+            </section>
+        </div>
+        <button type="button" class="carousel-arrow carousel-prev" aria-label="Previous panel"><i class="ti ti-chevron-left"></i></button>
+        <button type="button" class="carousel-arrow carousel-next" aria-label="Next panel"><i class="ti ti-chevron-right"></i></button>
+        <div class="carousel-dots"></div>
+    </div>
+</div>
+{% endblock %}

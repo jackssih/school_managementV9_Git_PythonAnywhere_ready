@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ school_name }} — Sign in</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<div class="login-page">
+    <div class="login-watermarks" aria-hidden="true">
+        <i class="ti ti-layout-dashboard login-watermark" style="top:6%; left:8%; font-size:110px; transform:rotate(-12deg);"></i>
+        <i class="ti ti-users login-watermark" style="top:12%; left:38%; font-size:70px; transform:rotate(8deg);"></i>
+        <i class="ti ti-school login-watermark" style="top:4%; right:10%; font-size:140px; transform:rotate(10deg);"></i>
+        <i class="ti ti-notes login-watermark" style="top:32%; left:4%; font-size:90px; transform:rotate(6deg);"></i>
+        <i class="ti ti-calendar-check login-watermark" style="bottom:28%; left:14%; font-size:120px; transform:rotate(-8deg);"></i>
+        <i class="ti ti-calendar-time login-watermark" style="top:40%; right:6%; font-size:100px; transform:rotate(-14deg);"></i>
+        <i class="ti ti-file-analytics login-watermark" style="bottom:8%; right:16%; font-size:130px; transform:rotate(9deg);"></i>
+        <i class="ti ti-calendar-event login-watermark" style="bottom:6%; left:42%; font-size:80px; transform:rotate(-6deg);"></i>
+        <i class="ti ti-report-analytics login-watermark" style="top:60%; left:22%; font-size:60px; transform:rotate(4deg);"></i>
+        <i class="ti ti-clipboard-check login-watermark" style="bottom:38%; right:34%; font-size:70px; transform:rotate(-10deg);"></i>
+    </div>
+
+    <div class="login-shell">
+
+        <div class="login-visual">
+            <div class="login-slide is-active" data-label="Reports &amp; analytics">
+                <svg viewBox="0 0 900 700" preserveAspectRatio="xMidYMid slice" role="img" aria-hidden="true">
+                    <defs>
+                        <linearGradient id="loginSkyReports" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="var(--teal)"/>
+                            <stop offset="100%" stop-color="var(--teal-dark)"/>
+                        </linearGradient>
+                    </defs>
+                    <rect width="900" height="700" fill="url(#loginSkyReports)"/>
+                    <circle cx="740" cy="130" r="60" fill="var(--amber)" opacity="0.85"/>
+                    <circle cx="740" cy="130" r="92" fill="var(--amber)" opacity="0.16"/>
+                    <circle cx="740" cy="130" r="124" fill="var(--amber)" opacity="0.09"/>
+
+                    <rect x="150" y="150" width="600" height="400" rx="18" fill="var(--surface)" opacity="0.97"/>
+                    <rect x="180" y="182" width="220" height="20" rx="5" fill="var(--teal-dark)" opacity="0.85"/>
+                    <rect x="180" y="212" width="140" height="10" rx="4" fill="var(--teal)" opacity="0.4"/>
+                    <rect x="580" y="178" width="140" height="30" rx="15" fill="var(--amber-tint)"/>
+                    <rect x="596" y="186" width="108" height="14" rx="4" fill="var(--amber)" opacity="0.9"/>
+
+                    <g>
+                        <line x1="200" y1="470" x2="700" y2="470" stroke="var(--teal-tint)" stroke-width="2"/>
+                        {% for bar in [(230,300,170,'var(--amber)'),(300,250,220,'var(--amber)'),(370,340,130,'var(--teal)'),(440,220,250,'var(--amber)'),(510,360,110,'var(--teal)'),(580,270,200,'var(--amber)'),(650,230,240,'var(--teal)')] %}
+                        <rect x="{{ bar[0] }}" y="{{ bar[1] }}" width="34" height="{{ bar[2] }}" rx="7" fill="{{ bar[3] }}" opacity="0.88"/>
+                        {% endfor %}
+                    </g>
+                    <path d="M230 360 L300 320 L370 400 L440 280 L510 380 L580 330 L650 300" fill="none" stroke="var(--amber)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+                </svg>
+            </div>
+
+            <div class="login-slide" data-label="Attendance — tracked daily">
+                <svg viewBox="0 0 900 700" preserveAspectRatio="xMidYMid slice" role="img" aria-hidden="true">
+                    <defs>
+                        <linearGradient id="loginSkyAttendance" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stop-color="var(--teal)"/>
+                            <stop offset="100%" stop-color="var(--teal-dark)"/>
+                        </linearGradient>
+                    </defs>
+                    <rect width="900" height="700" fill="url(#loginSkyAttendance)"/>
+                    <rect x="180" y="120" width="540" height="360" rx="18" fill="var(--teal-dark)" opacity="0.7"/>
+                    <rect x="205" y="150" width="490" height="300" rx="8" fill="var(--surface)"/>
+                    <rect x="225" y="172" width="180" height="22" rx="4" fill="var(--teal)"/>
+                    {% for row in [0,1,2] %}
+                    <rect x="225" y="{{ 216 + row*68 }}" width="450" height="50" rx="8" fill="var(--surface)" stroke="var(--teal-tint)" stroke-width="1.5"/>
+                    <circle cx="252" cy="{{ 241 + row*68 }}" r="11" fill="{{ 'var(--amber)' if row == 0 else 'var(--teal)' }}"/>
+                    <path d="M{{ 247 }} {{ 241 + row*68 }} l4 4 l7 -8" stroke="var(--surface)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                    <rect x="278" y="{{ 233 + row*68 }}" width="150" height="9" rx="3" fill="var(--text-primary)" opacity="0.5"/>
+                    <rect x="278" y="{{ 248 + row*68 }}" width="100" height="7" rx="3" fill="var(--text-secondary)" opacity="0.4"/>
+                    <rect x="560" y="{{ 233 + row*68 }}" width="90" height="24" rx="12" fill="var(--teal-tint)"/>
+                    {% endfor %}
+                    <circle cx="700" cy="560" r="44" fill="var(--amber)" opacity="0.92"/>
+                    <path d="M700 526 v14 M700 580 v14 M666 560 h14 M720 560 h14 M674 534 l10 10 M716 576 l10 10 M726 534 l-10 10 M684 576 l-10 10" stroke="var(--amber)" stroke-width="4" stroke-linecap="round"/>
+                </svg>
+            </div>
+
+            <div class="login-slide" data-label="Student &amp; staff profiles">
+                <svg viewBox="0 0 900 700" preserveAspectRatio="xMidYMid slice" role="img" aria-hidden="true">
+                    <defs>
+                        <linearGradient id="loginSkyProfiles" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="var(--violet-dark)"/>
+                            <stop offset="100%" stop-color="var(--teal-dark)"/>
+                        </linearGradient>
+                    </defs>
+                    <rect width="900" height="700" fill="url(#loginSkyProfiles)"/>
+                    <circle cx="180" cy="140" r="56" fill="var(--violet)" opacity="0.85"/>
+                    <circle cx="180" cy="140" r="88" fill="var(--violet)" opacity="0.16"/>
+                    <circle cx="180" cy="140" r="118" fill="var(--violet)" opacity="0.09"/>
+
+                    {% for card in [(160,240),(430,200),(160,440),(430,440)] %}
+                    <rect x="{{ card[0] }}" y="{{ card[1] }}" width="230" height="150" rx="16" fill="var(--surface)" opacity="0.97"/>
+                    <circle cx="{{ card[0] + 46 }}" cy="{{ card[1] + 55 }}" r="26" fill="var(--violet-tint)"/>
+                    <circle cx="{{ card[0] + 46 }}" cy="{{ card[1] + 46 }}" r="11" fill="var(--violet)"/>
+                    <path d="M{{ card[0] + 26 }} {{ card[1] + 75 }} q20 -18 40 0" fill="var(--violet)" opacity="0.9"/>
+                    <rect x="{{ card[0] + 92 }}" y="{{ card[1] + 40 }}" width="110" height="11" rx="4" fill="var(--text-primary)" opacity="0.55"/>
+                    <rect x="{{ card[0] + 92 }}" y="{{ card[1] + 60 }}" width="80" height="8" rx="3" fill="var(--text-secondary)" opacity="0.4"/>
+                    <rect x="{{ card[0] + 92 }}" y="{{ card[1] + 96 }}" width="76" height="20" rx="10" fill="var(--violet-tint)"/>
+                    {% endfor %}
+                </svg>
+            </div>
+
+            <div class="login-slide" data-label="Enrollment made simple">
+                <svg viewBox="0 0 900 700" preserveAspectRatio="xMidYMid slice" role="img" aria-hidden="true">
+                    <defs>
+                        <linearGradient id="loginSkyEnroll" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stop-color="var(--sky-dark)"/>
+                            <stop offset="100%" stop-color="var(--teal-dark)"/>
+                        </linearGradient>
+                    </defs>
+                    <rect width="900" height="700" fill="url(#loginSkyEnroll)"/>
+                    <rect x="230" y="130" width="330" height="420" rx="18" fill="var(--surface)" opacity="0.97"/>
+                    <rect x="262" y="164" width="180" height="18" rx="5" fill="var(--sky-dark)" opacity="0.85"/>
+                    <rect x="262" y="196" width="120" height="9" rx="4" fill="var(--text-secondary)" opacity="0.4"/>
+                    {% for field in [232,278,324,370] %}
+                    <rect x="262" y="{{ field }}" width="266" height="34" rx="8" fill="var(--sky-tint)"/>
+                    <rect x="278" y="{{ field + 12 }}" width="{{ 150 if field != 370 else 100 }}" height="10" rx="3" fill="var(--sky-dark)" opacity="0.55"/>
+                    {% endfor %}
+                    <rect x="262" y="454" width="266" height="40" rx="10" fill="var(--sky)"/>
+                    <rect x="330" y="468" width="130" height="12" rx="4" fill="var(--surface)" opacity="0.92"/>
+
+                    {% for step in [(630,230,1),(630,330,1),(630,430,0)] %}
+                    <line x1="630" y1="{{ step[1] + 26 }}" x2="630" y2="{{ step[1] + 74 }}" stroke="var(--sky-tint)" stroke-width="3" opacity="{{ '0' if step == (630,430,0) else '0.8' }}"/>
+                    <circle cx="630" cy="{{ step[1] }}" r="22" fill="{{ 'var(--sky)' if step[2] else 'var(--surface)' }}" stroke="var(--sky)" stroke-width="3"/>
+                    {% if step[2] %}<path d="M620 {{ step[1] }} l7 7 l14 -14" stroke="var(--surface)" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>{% else %}<circle cx="630" cy="{{ step[1] }}" r="6" fill="var(--sky)"/>{% endif %}
+                    {% endfor %}
+                </svg>
+            </div>
+
+            <div class="login-visual-overlay"></div>
+
+            <div class="login-brand">
+                <span class="logo-badge login-logo">
+                    {% if school_logo_url %}<img src="{{ school_logo_url }}" alt="">{% else %}S{% endif %}
+                </span>
+                <span class="login-brand-name">{{ school_name }}</span>
+            </div>
+
+            <div class="login-status">
+                <i class="ti ti-wifi"></i>
+                <span id="loginSlideLabel">Reports &amp; analytics</span>
+            </div>
+
+            <div class="login-dots" id="loginDots">
+                <button type="button" class="login-dot is-active" data-dot="0" aria-label="Show slide 1"></button>
+                <button type="button" class="login-dot" data-dot="1" aria-label="Show slide 2"></button>
+                <button type="button" class="login-dot" data-dot="2" aria-label="Show slide 3"></button>
+                <button type="button" class="login-dot" data-dot="3" aria-label="Show slide 4"></button>
+            </div>
+        </div>
+
+        <div class="login-form-panel">
+            <div class="login-tabs">
+                <span class="login-tab is-active">Login</span>
+            </div>
+
+            <p class="login-title">Welcome back</p>
+            <p class="login-subtitle">Sign in to your account</p>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="flash-stack">
+                        {% for category, message in messages %}
+                            <div class="flash flash-{{ category }}">{{ message }}</div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            {% if errors.form %}
+                <p class="form-error auth-form-error">{{ errors.form }}</p>
+            {% endif %}
+
+            <form method="post" class="login-form">
+                <input type="hidden" name="next" value="{{ next_url }}">
+
+                <div class="form-group">
+                    <label class="form-label" for="email">Email</label>
+                    <input class="form-input" type="email" id="email" name="email" value="{{ email }}" placeholder="name@school.org" autofocus>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="password">Password</label>
+                    <div class="password-field">
+                        <input class="form-input" type="password" id="password" name="password" placeholder="••••••••">
+                        <button type="button" class="password-toggle-btn" id="passwordToggleBtn" aria-label="Show password" aria-pressed="false">
+                            <i class="ti ti-eye" id="passwordToggleIcon"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <p class="login-forget"><a href="#">Forgot password?</a></p>
+
+                <button type="submit" class="primary-btn auth-submit login-submit"><i class="ti ti-login"></i> Login</button>
+            </form>
+
+            <p class="auth-hint">Don't have credentials? Ask your school admin to create an account for you under Settings &rarr; Users.</p>
+        </div>
+
+    </div>
+</div>
+
+<script>
+(function () {
+    var slides = Array.prototype.slice.call(document.querySelectorAll(".login-slide"));
+    var dots = Array.prototype.slice.call(document.querySelectorAll(".login-dot"));
+    var label = document.getElementById("loginSlideLabel");
+    var current = 0;
+    var timer;
+
+    function show(index) {
+        slides[current].classList.remove("is-active");
+        dots[current].classList.remove("is-active");
+        current = index;
+        slides[current].classList.add("is-active");
+        dots[current].classList.add("is-active");
+        label.textContent = slides[current].getAttribute("data-label");
+    }
+
+    function next() {
+        show((current + 1) % slides.length);
+    }
+
+    function restart() {
+        clearInterval(timer);
+        timer = setInterval(next, 5000);
+    }
+
+    dots.forEach(function (dot, i) {
+        dot.addEventListener("click", function () {
+            show(i);
+            restart();
+        });
+    });
+
+    restart();
+})();
+
+(function () {
+    var input = document.getElementById("password");
+    var btn = document.getElementById("passwordToggleBtn");
+    var icon = document.getElementById("passwordToggleIcon");
+    if (!input || !btn || !icon) return;
+
+    btn.addEventListener("click", function () {
+        var showing = input.type === "text";
+        input.type = showing ? "password" : "text";
+        icon.classList.toggle("ti-eye", showing);
+        icon.classList.toggle("ti-eye-off", !showing);
+        btn.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+        btn.setAttribute("aria-pressed", showing ? "false" : "true");
+    });
+})();
+</script>
+
+</body>
+</html>

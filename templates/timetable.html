@@ -1,0 +1,361 @@
+{% extends "base.html" %} {% block content %}
+
+<div class="profile-tabs">
+    <a href="{{ url_for('timetable', tab='classes') }}" class="profile-tab {% if active_tab == 'classes' %}active{% endif %}">Class timetables</a>
+    <a href="{{ url_for('timetable', tab='duty') }}" class="profile-tab {% if active_tab == 'duty' %}active{% endif %}">Daily duty rota</a>
+    <a href="{{ url_for('timetable', tab='gate') }}" class="profile-tab {% if active_tab == 'gate' %}active{% endif %}">Gate &amp; pickup rota</a>
+</div>
+
+{% if active_tab == 'classes' %}
+
+<div class="profiles-toolbar">
+    <div class="profiles-title">
+        <p class="profiles-heading">Timetables</p>
+        <span class="count-badge">{{ total_count }}</span>
+    </div>
+
+    <div class="profiles-actions">
+        <button type="button" class="primary-btn" onclick="openModal('newTimetableModal')">
+                <i class="ti ti-plus"></i> New timetable
+            </button>
+    </div>
+</div>
+
+<div class="profiles-table-wrap">
+    <table class="profiles-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Classes</th>
+                <th>Periods</th>
+                <th>Created on</th>
+                <th class="col-action">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for board in boards %}
+            <tr>
+                <td class="name-cell">{{ board.name }}</td>
+                <td>{{ board.classes|join(", ") }}</td>
+                <td>{{ board.period_count }}</td>
+                <td class="date-cell">{{ board.created_on }}</td>
+                <td class="col-action">
+                    <div class="row-actions">
+                        <a href="{{ url_for('timetable_board', board_id=board.id) }}" class="icon-btn" title="Open">
+                            <i class="ti ti-table"></i>
+                        </a>
+                        <button type="button" class="icon-btn" title="Edit" data-timetable-action="edit" data-record="{{ board|tojson|forceescape }}">
+                            <i class="ti ti-edit"></i>
+                        </button>
+                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" data-timetable-action="delete" data-form-id="timetable-delete-form-{{ board.id }}" data-label="{{ board.name|forceescape }}">
+                            <i class="ti ti-trash"></i>
+                        </button>
+                        <form id="timetable-delete-form-{{ board.id }}" action="{{ url_for('delete_timetable_board', board_id=board.id) }}" method="post" hidden></form>
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5">
+                    <p class="form-subheading">No timetables yet — create one to get started.</p>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% include "_pagination.html" %}
+
+<!-- New timetable modal -->
+<div class="modal-overlay" id="newTimetableModal">
+    <div class="modal-dialog">
+        <div class="modal-header">
+            <p class="form-heading">New timetable</p>
+            <i class="ti ti-x modal-close" onclick="closeModal('newTimetableModal')"></i>
+        </div>
+        <p class="form-subheading">Pick the classes this timetable covers — you'll add periods and fill in the grid next.</p>
+
+        <form class="modal-form" action="{{ url_for('new_timetable_board') }}" method="post">
+            <div class="form-group">
+                <label class="form-label" for="timetable-name">Name</label>
+                <input class="form-input" type="text" id="timetable-name" name="name" placeholder="e.g. Upper Primary - Term Two 2026">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Classes</label>
+                <div class="checkbox-grid">
+                    {% for c in classes %}
+                    <label class="checkbox-pill">
+                            <input type="checkbox" name="classes" value="{{ c.name }}">
+                            <span>{{ c.name }}</span>
+                        </label> {% endfor %}
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('newTimetableModal')">Cancel</button>
+                <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Create timetable</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit timetable modal -->
+<div class="modal-overlay" id="editTimetableModal">
+    <div class="modal-dialog">
+        <div class="modal-header">
+            <p class="form-heading">Edit timetable</p>
+            <i class="ti ti-x modal-close" onclick="closeModal('editTimetableModal')"></i>
+        </div>
+
+        <form class="modal-form" id="editTimetableForm" method="post">
+            <div class="form-group">
+                <label class="form-label" for="timetable-edit-name">Name</label>
+                <input class="form-input" type="text" id="timetable-edit-name" name="name">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Classes</label>
+                <div class="checkbox-grid">
+                    {% for c in classes %}
+                    <label class="checkbox-pill">
+                        <input type="checkbox" class="timetable-edit-class" name="classes" value="{{ c.name }}">
+                        <span>{{ c.name }}</span>
+                    </label> {% endfor %}
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('editTimetableModal')">Cancel</button>
+                <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% elif active_tab == 'duty' %}
+
+<div class="profiles-toolbar">
+    <div class="profiles-title">
+        <p class="profiles-heading">Daily duty rota</p>
+        <span class="count-badge">National Section, Term 2 2026</span>
+    </div>
+    <div class="profiles-actions">
+        <a href="{{ url_for('print_duty_rota') }}" target="_blank" class="primary-btn">
+            <i class="ti ti-printer"></i> Download PDF
+        </a>
+    </div>
+</div>
+
+<div class="profiles-table-wrap">
+    <table class="profiles-table timetable-rota-table">
+        <thead>
+            <tr>
+                <th>Day</th>
+                {% for shift in duty_shifts %}
+                <th class="timetable-shift-header" onclick='openShiftEditor({{ shift.id|tojson }}, {{ shift.label|tojson }}, {{ shift.time|tojson }})'>
+                    {{ shift.label }}<br><span class="form-hint">{{ shift.time }}</span> <i class="ti ti-pencil"></i>
+                </th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for day in duty_days %}
+            <tr>
+                <th class="timetable-class-name">{{ day }}</th>
+                {% for shift in duty_shifts %} {% set names = duty_rota.get(day, {}).get(shift.id, []) %}
+                <td class="timetable-cell {% if names %}filled{% endif %}" onclick='openDutyEditor({{ day|tojson }}, {{ shift.id|tojson }}, {{ shift.label|tojson }}, {{ names|tojson }})'>
+                    {% if names %} {% for name in names %}<span class="timetable-subject">{{ name }}</span>{% endfor %} {% else %}
+                    <span class="timetable-cell-empty">+</span> {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="modal-overlay" id="shiftEditorModal">
+    <div class="modal-dialog modal-dialog-narrow">
+        <div class="modal-header">
+            <p class="form-heading">Edit shift</p>
+            <i class="ti ti-x modal-close" onclick="closeModal('shiftEditorModal')"></i>
+        </div>
+        <form class="modal-form" id="shiftEditorForm" method="post">
+            <div class="form-group">
+                <label class="form-label" for="shiftLabel">Shift name</label>
+                <input class="form-input" type="text" id="shiftLabel" name="label" placeholder="e.g. Morning">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="shiftTime">Time</label>
+                <input class="form-input" type="text" id="shiftTime" name="time" placeholder="e.g. 7:30am – 7:55am">
+            </div>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('shiftEditorModal')">Cancel</button>
+                <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-overlay" id="dutyEditorModal">
+    <div class="modal-dialog modal-dialog-narrow">
+        <div class="modal-header">
+            <p class="form-heading" id="dutyEditorTitle">Edit duty</p>
+            <i class="ti ti-x modal-close" onclick="closeModal('dutyEditorModal')"></i>
+        </div>
+        <form class="modal-form" id="dutyEditorForm" method="post">
+            <div class="form-group">
+                <label class="form-label">Staff on duty</label>
+                <div class="duty-chip-list" id="dutyChipList"></div>
+                <input type="hidden" id="dutyNames" name="names">
+                <div class="duty-add-row">
+                    <input class="form-input" type="text" id="dutyNameInput" placeholder="Add a teacher, e.g. Tr. Emma">
+                    <button type="button" class="duty-add-btn" onclick="addDutyChip()" aria-label="Add teacher"><i class="ti ti-plus"></i></button>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('dutyEditorModal')">Cancel</button>
+                <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% elif active_tab == 'gate' %}
+
+<div class="profiles-toolbar">
+    <div class="profiles-title">
+        <p class="profiles-heading">Gate &amp; last pickup from 6:00pm</p>
+        <span class="count-badge">{{ gate_weeks|length }} weeks</span>
+    </div>
+    <div class="profiles-actions">
+        <button type="button" class="secondary-btn" onclick="openModal('newGateWeekModal')">
+            <i class="ti ti-plus"></i> Add week
+        </button>
+        <a href="{{ url_for('print_gate_rota') }}" target="_blank" class="primary-btn">
+            <i class="ti ti-printer"></i> Download PDF
+        </a>
+    </div>
+</div>
+
+<div class="profiles-table-wrap">
+    <table class="profiles-table timetable-rota-table">
+        <thead>
+            <tr>
+                <th>Week</th>
+                {% for day in gate_days %}
+                <th>{{ day.title() }}</th>{% endfor %}
+                <th class="col-action">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for week in gate_weeks %}
+            <tr>
+                <th class="timetable-class-name timetable-week-header" onclick='openWeekEditor({{ week.id }}, {{ week.label|tojson }}, {{ week.date_range|tojson }})'>
+                    {{ week.label }}<br><span class="form-hint">{{ week.date_range }}</span> <i class="ti ti-pencil"></i>
+                </th>
+                {% for day in gate_days %} {% set person = week.days.get(day, "") %}
+                <td class="timetable-cell {% if person %}filled{% endif %}" onclick='openGateEditor({{ week.id }}, {{ day|tojson }}, {{ (week.label ~ " - " ~ day)|tojson }}, {{ person|tojson }})'>
+                    {% if person %}
+                    <span class="timetable-subject">{{ person }}</span> {% else %}
+                    <span class="timetable-cell-empty">+</span> {% endif %}
+                </td>
+                {% endfor %}
+                <td class="col-action">
+                    <button type="button" class="icon-btn icon-btn-danger" title="Delete week" onclick="openDeleteConfirm('gate-week-delete-form-{{ week.id }}', '{{ week.label }}')">
+                            <i class="ti ti-trash"></i>
+                        </button>
+                    <form id="gate-week-delete-form-{{ week.id }}" action="{{ url_for('delete_gate_week', week_id=week.id) }}" method="post" hidden></form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="modal-overlay" id="newGateWeekModal">
+    <div class="modal-dialog modal-dialog-narrow">
+        <div class="modal-header">
+            <p class="form-heading">Add week</p>
+            <i class="ti ti-x modal-close" onclick="closeModal('newGateWeekModal')"></i>
+        </div>
+        <form class="modal-form" action="{{ url_for('new_gate_week') }}" method="post">
+            <div class="form-group">
+                <label class="form-label" for="newWeekLabel">Week label</label>
+                <input class="form-input" type="text" id="newWeekLabel" name="label" placeholder="e.g. WK14">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="newWeekRange">Date range</label>
+                <input class="form-input" type="text" id="newWeekRange" name="date_range" placeholder="e.g. 24th – 28th August">
+            </div>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('newGateWeekModal')">Cancel</button>
+                <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Add week</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-overlay" id="weekEditorModal">
+    <div class="modal-dialog modal-dialog-narrow">
+        <div class="modal-header">
+            <p class="form-heading">Edit week</p>
+            <i class="ti ti-x modal-close" onclick="closeModal('weekEditorModal')"></i>
+        </div>
+        <form class="modal-form" id="weekEditorForm" method="post">
+            <div class="form-group">
+                <label class="form-label" for="weekLabel">Week label</label>
+                <input class="form-input" type="text" id="weekLabel" name="label" placeholder="e.g. WK1">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="weekRange">Date range</label>
+                <input class="form-input" type="text" id="weekRange" name="date_range" placeholder="e.g. 25th – 29th May">
+            </div>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('weekEditorModal')">Cancel</button>
+                <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-overlay" id="gateEditorModal">
+    <div class="modal-dialog modal-dialog-narrow">
+        <div class="modal-header">
+            <p class="form-heading" id="gateEditorTitle">Edit gate duty</p>
+            <i class="ti ti-x modal-close" onclick="closeModal('gateEditorModal')"></i>
+        </div>
+        <form class="modal-form" id="gateEditorForm" method="post">
+            <div class="form-group">
+                <label class="form-label" for="gateName">Staff on gate duty</label>
+                <input class="form-input" type="text" id="gateName" name="name" placeholder="e.g. Elisa, or a holiday like Eid Day">
+            </div>
+            <div class="form-actions">
+                <button type="button" class="secondary-btn" onclick="closeModal('gateEditorModal')">Cancel</button>
+                <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endif %}
+
+<!-- Shared delete confirmation -->
+<div class="modal-overlay" id="confirmDeleteModal">
+    <div class="modal-dialog modal-dialog-narrow">
+        <div class="modal-header">
+            <p class="form-heading">Remove record?</p>
+            <i class="ti ti-x modal-close" onclick="closeModal('confirmDeleteModal')"></i>
+        </div>
+        <p class="form-subheading" id="confirmDeleteText"></p>
+        <div class="form-actions">
+            <button type="button" class="secondary-btn" onclick="closeModal('confirmDeleteModal')">Cancel</button>
+            <button type="button" class="danger-btn" id="confirmDeleteBtn">Delete</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %} {% block scripts %}
+<script src="{{ url_for('static', filename='js/timetable-list-actions.js') }}"></script>
+{% endblock %}

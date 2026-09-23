@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+    <a href="{{ url_for('profiles', tab='students') }}" class="back-link">
+        <i class="ti ti-arrow-left"></i> Back to students
+    </a>
+
+    <div class="form-card">
+        <p class="form-heading">New student</p>
+        <p class="form-subheading">Status shows "Inactive" until the student is enrolled in a class under Academics.</p>
+
+        <form method="post">
+            <div class="form-group">
+                <label class="form-label" for="name">Full name</label>
+                <input class="form-input" type="text" id="name" name="name" value="{{ form.name }}" placeholder="e.g. Nabirye Grace">
+                {% if errors.name %}<p class="form-error">{{ errors.name }}</p>{% endif %}
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="gender">Gender</label>
+                <select class="form-input" id="gender" name="gender">
+                    <option value="">Select gender</option>
+                    <option value="Male" {% if form.gender == "Male" %}selected{% endif %}>Male</option>
+                    <option value="Female" {% if form.gender == "Female" %}selected{% endif %}>Female</option>
+                </select>
+                {% if errors.gender %}<p class="form-error">{{ errors.gender }}</p>{% endif %}
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="date_of_birth">Date of birth</label>
+                <input class="form-input" type="date" id="date_of_birth" name="date_of_birth" value="{{ form.date_of_birth }}">
+                {% if errors.date_of_birth %}<p class="form-error">{{ errors.date_of_birth }}</p>{% endif %}
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="lin">LIN <span class="optional-tag">optional at registration</span></label>
+                <input class="form-input" type="text" id="lin" name="lin" value="{{ form.lin }}" placeholder="Leave blank if not yet available">
+                <p class="form-hint">Can be added or corrected later from the student's profile.</p>
+            </div>
+
+            <div class="form-actions">
+                <a href="{{ url_for('profiles', tab='students') }}" class="secondary-btn">Cancel</a>
+                <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Register student</button>
+            </div>
+        </form>
+    </div>
+
+{% endblock %}

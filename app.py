@@ -295,6 +295,7 @@ SCHOOL_INFO = {
     "email": "",
     "website": "",
     "reg_no": "",                 # e.g. a Ministry of Education registration number
+    "motto": "",                  # optional line at the bottom of the terminal report, e.g. "Where every day is a brighter day!"
     "logo_path": "images /Screenshot 2026-07-08 at 07.47.18.png",              # e.g. "images/logo.png" once you add a real logo file under static/images/
 }
 
@@ -582,6 +583,7 @@ def school_info_dict(school):
         "email": school.email,
         "website": school.website,
         "reg_no": school.reg_no,
+        "motto": SCHOOL_INFO.get("motto", ""),
         "logo_path": school.logo_path,
         "logo_url": school_logo_url(school),
     }
@@ -1293,28 +1295,39 @@ def is_other_subject_assessment(assessment):
     return not subject.get("is_compulsory", True)
 
 
+# Grading scale (Jeroma Smiles terminal report template). The aggregate is
+# stored as the digit 1-9 so totals / divisions keep working; the printed
+# report turns it into the label D1..F9 and its one-word descriptor.
+GRADE_SCALE = [
+    # (minimum mark, aggregate, label, descriptor)
+    (90, "1", "D1", "Excellent"),
+    (75, "2", "D2", "Very Good"),
+    (65, "3", "C3", "Steady"),
+    (55, "4", "C4", "Improving"),
+    (49, "5", "C5", "Striving"),
+    (40, "6", "C6", "Aspiring"),
+    (35, "7", "P7", "Support"),
+    (30, "8", "P8", "Below"),
+    (0, "9", "F9", "Effort"),
+]
+
+
 def aggregate_from_mark(mark):
     try:
-        score = int(mark)
+        score = int(float(mark))
     except (TypeError, ValueError):
         return ""
-    if score >= 90:
-        return "1"
-    if score >= 80:
-        return "2"
-    if score >= 70:
-        return "3"
-    if score >= 60:
-        return "4"
-    if score >= 55:
-        return "5"
-    if score >= 50:
-        return "6"
-    if score >= 45:
-        return "7"
-    if score >= 40:
-        return "8"
+    for minimum, aggregate, _label, _descriptor in GRADE_SCALE:
+        if score >= minimum:
+            return aggregate
     return "9"
+
+
+def effective_aggregate(mark, stored=""):
+    """The aggregate always follows the mark on the current grading scale, so
+    results saved under the old scale are reported correctly too. Falls back
+    to whatever was stored when there is no numeric mark."""
+    return aggregate_from_mark(mark) or (stored or "")
 
 
 def get_student_names(student_ids):
@@ -1675,7 +1688,7 @@ def assessment_records():
                     "registration_number": student["registration_number"],
                     "mark": result.get("mark", ""),
                     "grade": result.get("grade", ""),
-                    "aggregate": result.get("aggregate") or aggregate_from_mark(result.get("mark", "")),
+                    "aggregate": effective_aggregate(result.get("mark", ""), result.get("aggregate", "")),
                     "remark": result.get("remark", ""),
                 }
             )
@@ -2095,7 +2108,7 @@ def marksheet_data_for_class(class_name, sheet_type):
         assessment.id: {
             r.student_id: {
                 "mark": r.mark,
-                "aggregate": r.aggregate or aggregate_from_mark(r.mark),
+                "aggregate": effective_aggregate(r.mark, r.aggregate),
             }
             for r in AssessmentResult.query.filter_by(assessment_id=assessment.id).all()
         }
@@ -2173,6 +2186,48 @@ def marksheet_data_for_class(class_name, sheet_type):
     }
 
 
+def person_initials(name):
+    """'Namakula Robinah' -> 'N.R' (the teacher's-initials column)."""
+    parts = [w for w in re.split(r"\s+", (name or "").strip()) if w]
+    return ".".join(w[0].upper() for w in parts)
+
+
+def subject_teacher_initials(class_name):
+    """Return teacher initials keyed by subject for this exact class.
+
+    The assignment is read from Academics > Subjects (Subject.teacher_id), not
+    from the class teacher. Keep the subject's displayed name as the key so the
+    report can match it to the marks/assessment rows.
+    """
+    result = {}
+    academic_class = AcademicClass.query.filter_by(name=class_name).first()
+    if academic_class is None:
+        return result
+
+    for subject in (
+        Subject.query
+        .filter_by(class_id=academic_class.id)
+        .order_by(Subject.id)
+        .all()
+    ):
+        if subject.teacher and subject.teacher.name:
+            result[subject.name] = person_initials(subject.teacher.name)
+    return result
+
+
+def age_from_dob(value, today=None):
+    """Whole years from an ISO date string; '' when unknown."""
+    if not value:
+        return ""
+    try:
+        born = value if isinstance(value, date) else datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return ""
+    today = today or date.today()
+    years = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+    return years if years >= 0 else ""
+
+
 def report_students_payload(report):
     students = [s for s in all_students() if s["id"] in report.get("generated_student_ids", [])]
     result = []
@@ -2187,6 +2242,8 @@ def report_students_payload(report):
                 "name": student["name"],
                 "registration_number": student["registration_number"],
                 "date_of_birth": student.get("date_of_birth", ""),
+                "age": age_from_dob(student.get("date_of_birth", "")),
+                "subject_teacher_initials": subject_teacher_initials(class_name),
                 "lin": student.get("lin", ""),
                 "class_name": class_name,
                 "class_teacher": class_record["teacher"] if class_record else "",

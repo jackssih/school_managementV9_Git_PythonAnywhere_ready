@@ -457,6 +457,7 @@
     }
 
     function isMiniSlipReport() {
+        if (USE_TERMINAL_TEMPLATE) return false;
         const reportType = activeReport?.report_type;
         return reportType === "Beginning of term" || reportType === "Mid-term";
     }
@@ -489,7 +490,216 @@
         return [students.find((s) => s.id === studentId) || students[0], null];
     }
 
-    function renderReportCard(student) {
+    // --- Terminal report (Jeroma Smiles template) -------------------------
+    // One A4 page per pupil: BOT / Mid term / End of term (% and AGG),
+    // a one-word comment per learning area, teacher initials, division and
+    // total aggregates, class teacher's comment, conduct and signatures.
+    // Set USE_TERMINAL_TEMPLATE to false to bring back the old layouts.
+    const USE_TERMINAL_TEMPLATE = true;
+
+    // mark -> { agg: 1..9, label: "D1".."F9", comment: one-word descriptor }
+    const GRADE_SCALE = [
+        [90, 1, "D1", "Excellent"],
+        [75, 2, "D2", "Very Good"],
+        [65, 3, "C3", "Steady"],
+        [55, 4, "C4", "Improving"],
+        [49, 5, "C5", "Striving"],
+        [40, 6, "C6", "Aspiring"],
+        [35, 7, "P7", "Support"],
+        [30, 8, "P8", "Below"],
+        [0, 9, "F9", "Effort"],
+    ];
+    const PUPIL_CONDUCT = "Good";
+
+    function gradeForMark(mark) {
+        const m = numeric(mark);
+        if (m === null) return null;
+        const score = Math.floor(m);
+        const hit = GRADE_SCALE.find(([min]) => score >= min) || GRADE_SCALE[GRADE_SCALE.length - 1];
+        return { agg: hit[1], label: hit[2], comment: hit[3] };
+    }
+
+    function romanDivision(totalAgg) {
+        return ({ "1": "I", "2": "II", "3": "III", "4": "IV" })[computeDivision(totalAgg)] || "U";
+    }
+
+    function termRoman() {
+        const match = String(CURRENT_TERM_NAME || "").match(/\d+/);
+        const n = match ? Number(match[0]) : 0;
+        return ({ 1: "I", 2: "II", 3: "III" })[n] || String(CURRENT_TERM_NAME || "—");
+    }
+
+    // "Namakula Robinah" -> "N.R"
+    function initialsOf(name) {
+        return String(name || "").trim().split(/\s+/).filter(Boolean).map((w) => w[0].toUpperCase()).join(".");
+    }
+
+    // Match the subject label robustly if spacing/capitalisation differs between
+    // the configured subject and the assessment row.
+    function teacherInitialsForSubject(subject, initialsBySubject) {
+        const wanted = String(subject || "").trim().replace(/\\s+/g, " ").toLocaleLowerCase();
+        const entries = Object.entries(initialsBySubject || {});
+        const match = entries.find(([name]) =>
+            String(name || "").trim().replace(/\\s+/g, " ").toLocaleLowerCase() === wanted
+        );
+        return match ? match[1] : "";
+    }
+
+    // The mark row for a subject in a period; End of term prefers External, then Internal.
+    function terminalCell(groups, period, subject) {
+        let r;
+        if (period === "EOT") {
+            r = rowFor(subject, groups["E.O.T External"]) || rowFor(subject, groups["E.O.T Internal"]);
+        } else {
+            r = rowFor(subject, groups[period]);
+        }
+        const g = r ? gradeForMark(r.mark) : null;
+        return { mark: g ? Math.floor(numeric(r.mark)) : null, grade: g };
+    }
+
+    function renderTerminalReport(student) {
+        const groups = groupMarkRows(student);
+        const periods = ["B.O.T.", "Mid", "EOT"];
+        const subjects = (student.main_subjects || []).slice();
+        const initialsBySubject = student.subject_teacher_initials || {};
+
+        const totals = periods.map(() => ({ sum: 0, count: 0, aggSum: 0 }));
+        const rowsHtml = subjects.map((subject) => {
+            const cells = periods.map((p, i) => {
+                const c = terminalCell(groups, p, subject);
+                if (c.grade) {
+                    totals[i].sum += c.mark; totals[i].count += 1; totals[i].aggSum += c.grade.agg;
+                }
+                return c;
+            });
+            // The comment follows the most recent period that has a result.
+            const latest = [...cells].reverse().find((c) => c.grade);
+            return `
+                <tr>
+                    <td class="jsr-area">${escapeHtml(subject)}</td>
+                    <td>100</td>
+                    ${cells.map((c) => `<td class="jsr-mark">${c.grade ? c.mark : ""}</td><td class="jsr-agg">${c.grade ? c.grade.label : ""}</td>`).join("")}
+                    <td class="jsr-comment">${latest ? escapeHtml(latest.grade.comment) : ""}</td>
+                    <td class="jsr-init">${escapeHtml(teacherInitialsForSubject(subject, initialsBySubject))}</td>
+                </tr>`;
+        });
+
+        // Letter-graded ("other") subjects, if the class has any.
+        const otherRows = (student.assessments || []).filter((r) => r.mode === "letter");
+        const otherBySubject = {};
+        otherRows.forEach((r) => { if (!otherBySubject[r.subject] || r.grade) otherBySubject[r.subject] = r; });
+        Object.keys(otherBySubject).forEach((subject) => {
+            const r = otherBySubject[subject];
+            rowsHtml.push(`
+                <tr>
+                    <td class="jsr-area">${escapeHtml(subject)}</td><td></td>
+                    <td></td><td></td><td></td><td></td><td></td><td></td>
+                    <td class="jsr-comment">${escapeHtml(r.grade || "")}</td>
+                    <td class="jsr-init">${escapeHtml(teacherInitialsForSubject(subject, initialsBySubject))}</td>
+                </tr>`);
+        });
+        while (rowsHtml.length < 6) {
+            rowsHtml.push(`<tr class="jsr-blank"><td class="jsr-area">&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`);
+        }
+
+        // Average row.
+        const avg = totals.map((t) => {
+            if (!t.count) return { mark: "", label: "", comment: "", grade: null };
+            const mark = Math.round(t.sum / t.count);
+            const g = gradeForMark(mark);
+            return { mark, label: g.label, comment: g.comment, grade: g };
+        });
+        const latestAvg = [...avg].reverse().find((a) => a.grade);
+
+        // Division and aggregates come from the most recent period with marks.
+        let lastIdx = -1;
+        totals.forEach((t, i) => { if (t.count) lastIdx = i; });
+        const totalAgg = lastIdx >= 0 ? totals[lastIdx].aggSum : null;
+        const division = totalAgg !== null ? romanDivision(totalAgg) : "";
+
+        const logo = SCHOOL_INFO.logo_url
+            ? `<img class="jsr-logo" src="${escapeHtml(SCHOOL_INFO.logo_url)}" alt="${escapeHtml(SCHOOL_NAME)} logo">`
+            : `<div class="jsr-logo jsr-logo-fallback">${escapeHtml(schoolInitials(SCHOOL_NAME))}</div>`;
+        const phone = SCHOOL_INFO.phone ? `Phone: ${escapeHtml(SCHOOL_INFO.phone)}` : "";
+        const age = student.age !== undefined && student.age !== "" ? `${student.age}YRS` : "—";
+        const year = TERM_TITLE_YEAR || String(new Date().getFullYear());
+        const teacherSig = student.class_teacher_signature_url
+            ? `<img class="jsr-sig-img" src="${escapeHtml(student.class_teacher_signature_url)}" alt="Signature">` : "";
+        const headSig = HEAD_TEACHER && HEAD_TEACHER.signature_url
+            ? `<img class="jsr-sig-img" src="${escapeHtml(HEAD_TEACHER.signature_url)}" alt="Head teacher signature">` : "";
+
+        return `
+            <article class="report-card-page jsr-page">
+                <div class="jsr-head">
+                    <div class="jsr-head-text">
+                        <p class="jsr-school">${escapeHtml(SCHOOL_NAME)}</p>
+                        ${SCHOOL_INFO.address ? `<p class="jsr-address">${escapeHtml(SCHOOL_INFO.address)}</p>` : ""}
+                        ${phone ? `<p class="jsr-phone">${phone}</p>` : ""}
+                    </div>
+                    ${logo}
+                </div>
+
+                <p class="jsr-title"><span>TERMINAL REPORT</span></p>
+
+                <div class="jsr-meta">
+                    <div class="jsr-line">
+                        <b>PUPIL'S NAME:</b><span class="jsr-fill jsr-fill-name">${escapeHtml((student.name || "").toUpperCase())}</span>
+                        <b>AGE:</b><span class="jsr-fill jsr-fill-age">${escapeHtml(age)}</span>
+                    </div>
+                    <div class="jsr-line">
+                        <b>CLASS</b><span class="jsr-fill jsr-fill-class">${escapeHtml(student.class_name)}</span>
+                        <b>TERM</b><span class="jsr-fill jsr-fill-term">${escapeHtml(termRoman())}</span>
+                        <b>YEAR:</b><span class="jsr-fill jsr-fill-age">${escapeHtml(year)}</span>
+                    </div>
+                </div>
+
+                <table class="jsr-table">
+                    <thead>
+                        <tr>
+                            <th rowspan="3" class="jsr-area">LEARNING AREA</th>
+                            <th rowspan="3">FULL<br>MARKS</th>
+                            <th colspan="6">SCORED MARKS</th>
+                            <th rowspan="3">COMMENTS</th>
+                            <th rowspan="3">TEACHER'S<br>INITIALS</th>
+                        </tr>
+                        <tr><th colspan="2">BOT</th><th colspan="2">MID TERM</th><th colspan="2">END OF TERM</th></tr>
+                        <tr class="jsr-sub"><th>%</th><th>AGG</th><th>%</th><th>AGG</th><th>%</th><th>AGG</th></tr>
+                    </thead>
+                    <tbody>
+                        ${rowsHtml.join("")}
+                        <tr class="jsr-average">
+                            <td class="jsr-area">AVERAGE</td>
+                            <td>100</td>
+                            ${avg.map((a) => `<td class="jsr-mark">${a.mark}</td><td class="jsr-agg">${a.label}</td>`).join("")}
+                            <td class="jsr-comment">${latestAvg ? escapeHtml(latestAvg.comment) : ""}</td>
+                            <td></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="jsr-division">
+                    <span class="jsr-div-label">DIVISION</span>
+                    <span class="jsr-div-value">${division}</span>
+                    <span class="jsr-div-agg">${totalAgg !== null ? `${totalAgg} AGGREGATES` : "AGGREGATES"}</span>
+                </div>
+
+                <p class="jsr-comment-line"><span class="jsr-comment-label">Class Teacher's Comment:</span><u>${escapeHtml(student.comments["Class teacher"] || "")}</u></p>
+
+                <div class="jsr-foot">
+                    <p class="jsr-conduct-line">Pupil's Conduct: <b class="jsr-conduct">${PUPIL_CONDUCT}</b></p>
+                    <div class="jsr-line jsr-teacher-line">
+                        <div class="jsr-grp jsr-grp-left"><span>Teacher's Name:</span><b class="jsr-fill jsr-teacher">Tr. ${escapeHtml(student.class_teacher || "")}</b></div>
+                        <div class="jsr-grp jsr-grp-right"><span>Signature:</span><span class="jsr-fill jsr-sig-fill">${teacherSig}</span></div>
+                    </div>
+                    <div class="jsr-head-sig"><span class="jsr-sig-box jsr-sig-wide">${headSig}</span><p>HEADTEACHER'S SIGNATURE</p></div>
+                </div>
+
+                ${SCHOOL_INFO.motto ? `<p class="jsr-motto">“${escapeHtml(SCHOOL_INFO.motto)}”</p>` : ""}
+            </article>
+        `;
+    }
+
+    function renderLegacyReportCard(student) {
         const reportType = activeReport.report_type;
 
         const groups = groupMarkRows(student);
@@ -648,6 +858,10 @@
                 </div>
             </article>
         `;
+    }
+
+    function renderReportCard(student) {
+        return USE_TERMINAL_TEMPLATE ? renderTerminalReport(student) : renderLegacyReportCard(student);
     }
 
     function renderStudentList() {

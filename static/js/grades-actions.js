@@ -22,17 +22,18 @@
         }
     }
 
+    // Grading scale: 90+ D1, 75+ D2, 65+ C3, 55+ C4, 49+ C5, 40+ C6, 35+ P7, 30+ P8, else F9.
     function aggregateFromMark(value) {
         const score = Number.parseInt(value, 10);
         if (Number.isNaN(score)) return "";
         if (score >= 90) return "1";
-        if (score >= 80) return "2";
-        if (score >= 70) return "3";
-        if (score >= 60) return "4";
-        if (score >= 55) return "5";
-        if (score >= 50) return "6";
-        if (score >= 45) return "7";
-        if (score >= 40) return "8";
+        if (score >= 75) return "2";
+        if (score >= 65) return "3";
+        if (score >= 55) return "4";
+        if (score >= 49) return "5";
+        if (score >= 40) return "6";
+        if (score >= 35) return "7";
+        if (score >= 30) return "8";
         return "9";
     }
 

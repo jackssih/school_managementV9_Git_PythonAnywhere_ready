@@ -32,8 +32,12 @@
                 <label class="form-label" for="role">Role</label>
                 <select class="form-input" id="role" name="role">
                     <option value="teacher" {% if form.role == 'teacher' %}selected{% endif %}>Teacher</option>
+                    <option value="supervisor" {% if form.role == 'supervisor' %}selected{% endif %}>Supervisor</option>
+                    <option value="headteacher" {% if form.role == 'headteacher' %}selected{% endif %}>Head Teacher</option>
+                    <option value="principal" {% if form.role == 'principal' %}selected{% endif %}>Principal</option>
                     <option value="admin" {% if form.role == 'admin' %}selected{% endif %}>Admin</option>
                 </select>
+                {% if errors.role %}<p class="form-error">{{ errors.role }}</p>{% endif %}
             </div>
 
             <div class="form-actions">

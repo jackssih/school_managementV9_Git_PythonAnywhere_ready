@@ -1,0 +1,512 @@
+{% extends "base.html" %}
+
+{#
+  ACE module. Built from the same shared pieces as Academics / Grades / Reports
+  (profile-tabs, profiles-toolbar, profiles-table, icon-btn, modal-*, report-preview-*)
+  so it looks and behaves like the rest of the app. ACE-only styling lives in
+  static/css/style.css under "ACE module".
+#}
+
+{# One printed ACE report card — mirrors the school's paper template. #}
+{% macro report_page(student) %}
+  {% set pace_cols = [9, student.max_paces]|max %}
+  <article class="ace-report-page" data-student-id="{{ student.id }}" data-student-name="{{ student.name }}">
+    <header class="ace-card-head">
+      {% if school_logo_url %}<img class="ace-card-logo" src="{{ school_logo_url }}" alt="{{ school_name }} logo">{% else %}<div></div>{% endif %}
+      <div class="ace-card-head-text">
+        <p class="ace-card-school">{{ school_name }}</p>
+        {% if school_info.address %}<p>{{ school_info.address }}</p>{% endif %}
+        {% if school_info.phone %}<p>Phone: {{ school_info.phone }}</p>{% endif %}
+      </div>
+      <div></div>
+    </header>
+
+    <div class="ace-card-title"><span>{{ report_title }}&nbsp; REPORT CARD</span></div>
+
+    <div class="ace-card-meta">
+      <div class="ace-card-meta-row name-row">
+        <div class="ace-card-field"><span class="label">NAME</span><span class="fill">{{ student.name|upper }}</span></div>
+        <div class="ace-card-field age"><span class="label">AGE</span><span class="fill">{% if student.age != '' %}{{ student.age }}YRS{% endif %}</span></div>
+      </div>
+      <div class="ace-card-meta-row term-row">
+        <div class="ace-card-field"><span class="label">GRADE</span><span class="fill">{{ ace_grade }}</span></div>
+        <div class="ace-card-field"><span class="label">TERM</span><span class="fill">{{ term_roman }}</span></div>
+        <div class="ace-card-field"><span class="label">YEAR</span><span class="fill">{{ report_year }}</span></div>
+      </div>
+    </div>
+
+    <table class="ace-card-table">
+      <colgroup><col style="width:28%">{% for i in range(pace_cols) %}<col style="width:{{ (61 / pace_cols)|round(3) }}%">{% endfor %}<col style="width:11%"></colgroup>
+      <thead>
+        <tr><th>LEARNING AREAS</th><th colspan="{{ pace_cols }}">PACE NUMBER AND SCORES</th><th>INITIALS</th></tr>
+      </thead>
+      <tbody>
+        {% for area in ace_areas %}
+          {% set results = student.area_scores.get(area, []) %}
+          <tr class="ace-area-{{ area|lower|replace(' ', '-') }}">
+            <td class="ace-label">{{ area }}</td>
+            {% for i in range(pace_cols) %}<td class="ace-pace-no">{% if i < results|length %}{{ results[i].pace }}{% endif %}</td>{% endfor %}
+            <td></td>
+          </tr>
+          <tr>
+            <td class="ace-label-blank"></td>
+            {% for i in range(pace_cols) %}<td class="ace-pace-score">{% if i < results|length %}{{ results[i].score }}{% endif %}</td>{% endfor %}
+            <td></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="ace-card-notes">
+      <p class="ace-card-note ace-hand"><span class="ace-card-note-label">Supervisor's Report:</span> <span class="ace-card-note-text{% if not student.supervisor_report %} is-empty{% endif %}">{{ student.supervisor_report }}</span></p>
+      <div class="ace-card-sign"><span>Signature:</span><span class="ace-card-sign-line">{% if supervisor.signature_url %}<img src="{{ supervisor.signature_url }}" alt="Supervisor signature">{% endif %}</span></div>
+
+      <p class="ace-card-note ace-hand"><span class="ace-card-note-label">Principal's Report:</span> <span class="ace-card-note-text{% if not student.principal_report %} is-empty{% endif %}">{{ student.principal_report }}</span></p>
+      <div class="ace-card-sign"><span>Signature:</span><span class="ace-card-sign-line">{% if principal.signature_url %}<img src="{{ principal.signature_url }}" alt="Principal signature">{% endif %}</span></div>
+    </div>
+
+    <footer class="ace-card-foot">
+      {% if next_term_begins or next_term_ends %}
+        <p class="ace-card-next">
+          {% if next_term_begins %}<span>Next Term Begins on: <b>{{ next_term_begins }}</b></span>{% endif %}
+          {% if next_term_ends %}<span>Ends on: <b>{{ next_term_ends }}</b></span>{% endif %}
+        </p>
+      {% endif %}
+      {% if school_info.motto %}<p class="ace-card-tagline">“{{ school_info.motto }}”</p>{% endif %}
+    </footer>
+  </article>
+{% endmacro %}
+
+{% block content %}
+  <div class="profile-tabs">
+    <a class="profile-tab {% if active_tab == 'grades' %}active{% endif %}" href="{{ url_for('ace', tab='grades') }}">Grades</a>
+    <a class="profile-tab {% if active_tab == 'reports' %}active{% endif %}" href="{{ url_for('ace', tab='reports') }}">Reports</a>
+    <a class="profile-tab {% if active_tab == 'attendance' %}active{% endif %}" href="{{ url_for('ace', tab='attendance') }}">Attendance</a>
+  </div>
+
+  {# ───────────── 1. All ACE grades ───────────── #}
+  {% if not selected_class %}
+    <div class="profiles-toolbar">
+      <div class="profiles-title">
+        <p class="profiles-heading">ACE Grades</p>
+        <span class="count-badge">{{ ace_grade_records|length }}</span>
+      </div>
+      <div class="profiles-actions">
+        <form class="search-box" onsubmit="return false"><i class="ti ti-search"></i><input type="search" data-ace-filter="#aceGradeTable" placeholder="Search"></form>
+      </div>
+    </div>
+
+    <div class="profiles-table-wrap">
+      <table class="profiles-table" id="aceGradeTable">
+        <thead><tr><th>ACE Grade</th><th>Students</th><th>Supervisor</th><th class="col-action">Actions</th></tr></thead>
+        <tbody>
+          {% for grade in ace_grade_records %}
+            <tr>
+              <td class="name-cell"><a class="academic-class-link" href="{{ url_for('ace', tab=active_tab, grade_id=grade.id) }}">Grade {{ grade.grade }}</a></td>
+              <td>{{ grade.students_count }}</td>
+              <td>{{ grade.supervisor or '—' }}</td>
+              <td class="col-action"><div class="row-actions"><button type="button" class="icon-btn" title="Edit Grade {{ grade.grade }} supervisor" data-ace-edit-grade data-class-id="{{ grade.id }}" data-grade="{{ grade.grade }}" data-supervisor-id="{{ grade.supervisor_id }}"><i class="ti ti-pencil"></i></button></div></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="modal-overlay" id="aceEditGradeModal">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <p class="form-heading" id="aceEditGradeHeading">Edit ACE Grade</p>
+          <i class="ti ti-x modal-close" onclick="closeModal('aceEditGradeModal')"></i>
+        </div>
+        <form class="modal-form" data-native-submit method="post" id="aceEditGradeForm" action="" data-action-template="{{ url_for('ace_set_supervisor', class_id=0) }}">
+          <input type="hidden" name="tab" value="{{ active_tab }}">
+          <div class="form-group">
+            <label class="form-label" for="ace-edit-supervisor">Supervisor</label>
+            <select class="form-input" id="ace-edit-supervisor" name="supervisor_id">
+              <option value="">No supervisor</option>
+              {% for supervisor in supervisors %}<option value="{{ supervisor.id }}">{{ supervisor.name }}</option>{% endfor %}
+            </select>
+            <p class="form-hint">Their name and signature appear on this grade's report cards.</p>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="secondary-btn" onclick="closeModal('aceEditGradeModal')">Cancel</button>
+            <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  {# ───────────── Attendance tab · one grade · class registers ───────────── #}
+  {% elif active_tab == 'attendance' %}
+    <div class="profiles-toolbar">
+      <div class="profiles-title">
+        <p class="profiles-heading">ACE Grade {{ ace_grade }} — Attendance</p>
+        <span class="count-badge">{{ students|length }}</span>
+      </div>
+      <div class="profiles-actions">
+        <a class="secondary-btn" href="{{ url_for('ace', tab='attendance') }}"><i class="ti ti-arrow-left"></i> All Grades</a>
+        <button type="button" class="primary-btn" onclick="openModal('attendanceAddModal')"><i class="ti ti-plus"></i> Record attendance</button>
+      </div>
+    </div>
+
+    <div class="section-card" style="margin-bottom:16px;">
+      <div class="section-card-body">
+        <strong>{{ students|length }} students</strong> enrolled in ACE Grade {{ ace_grade }}.
+        Create a register for a day, then open it to mark who is present.
+      </div>
+    </div>
+
+    <div class="profiles-table-wrap">
+      <table class="profiles-table">
+        <thead><tr><th>Date</th><th>Session</th><th>Attendances</th><th class="col-action">Actions</th></tr></thead>
+        <tbody>
+          {% for r in ace_attendance_records %}
+            <tr>
+              <td class="date-cell">{{ r.date }}</td>
+              <td>{{ r.session }}</td>
+              <td><button type="button" class="link-btn" data-attendance-action="marks" data-record="{{ r|tojson|forceescape }}">{{ r.attendance_label }}</button></td>
+              <td class="col-action"><div class="row-actions">
+                <button type="button" class="icon-btn" title="View" data-attendance-action="view" data-record="{{ r|tojson|forceescape }}"><i class="ti ti-eye"></i></button>
+                <button type="button" class="icon-btn icon-btn-danger" title="Delete" data-attendance-action="delete" data-form-id="attendance-delete-form-{{ r.id }}" data-label="{{ r.entity }} ({{ r.date }})"><i class="ti ti-trash"></i></button>
+                <form id="attendance-delete-form-{{ r.id }}" action="{{ url_for('delete_attendance', attendance_id=r.id) }}" method="post" hidden></form>
+              </div></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="empty-cell">No attendance has been recorded for this grade yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="modal-overlay" id="attendanceAddModal">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <p class="form-heading">Record attendance</p>
+          <i class="ti ti-x modal-close" onclick="closeModal('attendanceAddModal')"></i>
+        </div>
+        <form class="modal-form" action="{{ url_for('new_attendance') }}" method="post">
+          <input type="hidden" name="attendance_type" value="Class">
+          <input type="hidden" name="class_id" value="{{ selected_class.id }}">
+          <div class="form-group">
+            <label class="form-label" for="attendance-date">Date</label>
+            <input class="form-input date-picker" type="text" id="attendance-date" name="date" placeholder="DD-MM-YYYY">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="attendance-session">Session</label>
+            <select class="form-input" id="attendance-session" name="session">
+              <option value="Day">Day</option>
+              <option value="Morning">Morning</option>
+              <option value="Afternoon">Afternoon</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Grade</label>
+            <div class="form-input" style="background:var(--surface-muted, #f6f7f8);">ACE Grade {{ ace_grade }}</div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="secondary-btn" onclick="closeModal('attendanceAddModal')">Cancel</button>
+            <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Create</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="attendanceMarksModal">
+      <div class="modal-dialog modal-dialog-wide">
+        <div class="modal-header">
+          <p class="form-heading" id="attendanceMarksTitle">Attendance</p>
+          <i class="ti ti-x modal-close" onclick="closeModal('attendanceMarksModal')"></i>
+        </div>
+        <form class="modal-form" id="attendanceMarksForm" method="post">
+          <div class="form-group">
+            <label class="form-label" for="attendance-mark-all">Mark all</label>
+            <select class="form-input" id="attendance-mark-all">
+              <option value="">Choose status</option>
+              {% for status in attendance_statuses %}<option value="{{ status }}">{{ status }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="attendance-grid" id="attendanceGrid"></div>
+          <div class="form-actions">
+            <button type="button" class="secondary-btn" id="attendanceResetBtn">Reset</button>
+            <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="attendanceViewModal">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <p class="form-heading" id="attendanceViewTitle">Attendance details</p>
+          <i class="ti ti-x modal-close" onclick="closeModal('attendanceViewModal')"></i>
+        </div>
+        <div class="view-rows" id="attendanceViewBody"></div>
+        <div class="form-actions">
+          <button type="button" class="secondary-btn" onclick="closeModal('attendanceViewModal')">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="confirmDeleteModal">
+      <div class="modal-dialog modal-dialog-narrow">
+        <div class="modal-header">
+          <p class="form-heading">Remove attendance?</p>
+          <i class="ti ti-x modal-close" onclick="closeModal('confirmDeleteModal')"></i>
+        </div>
+        <p class="form-subheading" id="confirmDeleteText"></p>
+        <div class="form-actions">
+          <button type="button" class="secondary-btn" onclick="closeModal('confirmDeleteModal')">Cancel</button>
+          <button type="button" class="danger-btn" id="confirmDeleteBtn">Delete</button>
+        </div>
+      </div>
+    </div>
+
+  {# ───────────── 2. Grades tab · one grade · student list ───────────── #}
+  {% elif active_tab == 'grades' and not selected_student %}
+    <div class="profiles-toolbar">
+      <div class="profiles-title">
+        <p class="profiles-heading">Grade {{ ace_grade }} — Students</p>
+        <span class="count-badge">{{ students|length }}</span>
+      </div>
+      <div class="profiles-actions">
+        <a class="secondary-btn" href="{{ url_for('ace', tab='grades') }}"><i class="ti ti-arrow-left"></i> All Grades</a>
+        <form class="search-box" onsubmit="return false"><i class="ti ti-search"></i><input type="search" data-ace-filter="#aceStudentTable" placeholder="Search"></form>
+        <button type="button" class="secondary-btn" onclick="openModal('aceBulkEnrollModal')"><i class="ti ti-users-plus"></i> Bulk enroll</button>
+        <button type="button" class="primary-btn" onclick="openModal('aceEnrollModal')"><i class="ti ti-user-plus"></i> Enroll student</button>
+      </div>
+    </div>
+
+    <div class="profiles-table-wrap">
+      <table class="profiles-table" id="aceStudentTable">
+        <thead><tr><th>Student</th><th>Registration no.</th><th>PACE marks</th><th class="col-action">Actions</th></tr></thead>
+        <tbody>
+          {% for student in students %}
+            <tr>
+              <td class="name-cell"><a class="academic-class-link" href="{{ url_for('ace', tab='grades', grade_id=selected_class.id, student_id=student.id) }}">{{ student.name }}</a></td>
+              <td>{{ student.registration_number }}</td>
+              <td>{{ student.area_scores.values()|map('length')|sum }}</td>
+              <td class="col-action"><div class="row-actions">
+                <a class="icon-btn" title="Record marks" href="{{ url_for('ace', tab='grades', grade_id=selected_class.id, student_id=student.id) }}"><i class="ti ti-edit"></i></a>
+                <button type="button" class="icon-btn" title="Preview report" data-ace-preview data-student-id="{{ student.id }}"><i class="ti ti-eye"></i></button>
+              </div></td>
+            </tr>
+          {% else %}
+            <tr class="ace-empty-row"><td colspan="4">No students are enrolled in this ACE grade yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="modal-overlay" id="aceEnrollModal">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <p class="form-heading">Enroll student in Grade {{ ace_grade }}</p>
+          <i class="ti ti-x modal-close" onclick="closeModal('aceEnrollModal')"></i>
+        </div>
+        <form class="modal-form" data-native-submit method="post" action="{{ url_for('ace_enroll') }}">
+          <input type="hidden" name="class_id" value="{{ selected_class.id }}">
+          <div class="form-group">
+            <label class="form-label" for="ace-enroll-student">Student</label>
+            <select class="form-input" id="ace-enroll-student" name="student_id" required>
+              <option value="">Choose student</option>
+              {% for student in available_students %}<option value="{{ student.id }}">{{ student.name }}{% if student.current_class_name %} — currently {{ student.current_class_name }}{% endif %}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ace-enroll-supervisor">Supervisor</label>
+            <select class="form-input" id="ace-enroll-supervisor" name="supervisor_id">
+              <option value="">Keep current supervisor</option>
+              {% for supervisor in supervisors %}<option value="{{ supervisor.id }}">{{ supervisor.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="secondary-btn" onclick="closeModal('aceEnrollModal')">Cancel</button>
+            <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Enroll</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="aceBulkEnrollModal">
+      <div class="modal-dialog modal-dialog-wide">
+        <div class="modal-header">
+          <p class="form-heading">Bulk enroll in Grade {{ ace_grade }}</p>
+          <i class="ti ti-x modal-close" onclick="closeModal('aceBulkEnrollModal')"></i>
+        </div>
+        <p class="form-subheading">Choose as many students as you like, then enroll them all at once.</p>
+        <form class="bulk-form" method="post" action="{{ url_for('ace_bulk_enroll') }}">
+          <input type="hidden" name="class_id" value="{{ selected_class.id }}">
+          <div class="form-group">
+            <label class="form-label" for="ace-bulk-supervisor">Supervisor</label>
+            <select class="form-input" id="ace-bulk-supervisor" name="supervisor_id">
+              <option value="">Keep current supervisor</option>
+              {% for supervisor in supervisors %}<option value="{{ supervisor.id }}">{{ supervisor.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <div class="bulk-select-toolbar">
+              <input type="search" class="form-input" id="aceBulkSearch" placeholder="Search students">
+              <div class="bulk-select-actions"><button type="button" class="link-btn" id="aceBulkSelectAll">Select all</button></div>
+            </div>
+            <div class="bulk-student-list" id="aceBulkList">
+              {% for student in available_students %}
+                <label class="bulk-student-row" data-name="{{ student.name|lower }}">
+                  <input type="checkbox" name="student_ids" value="{{ student.id }}">
+                  <span class="bulk-student-info">
+                    <span class="bulk-student-name">{{ student.name }}</span>
+                    <span class="bulk-student-meta">{{ student.registration_number }}{% if student.current_class_name %} · {{ student.current_class_name }}{% endif %}</span>
+                  </span>
+                </label>
+              {% else %}
+                <p class="form-subheading">No other students are available to enrol.</p>
+              {% endfor %}
+            </div>
+            <p class="form-hint" id="aceBulkCount">0 students selected</p>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="secondary-btn" onclick="closeModal('aceBulkEnrollModal')">Cancel</button>
+            <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Enroll selected</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  {# ───────────── 3. Grades tab · one student · PACE marks ───────────── #}
+  {% elif active_tab == 'grades' %}
+    <div class="profiles-toolbar">
+      <div class="profiles-title">
+        <p class="profiles-heading">{{ selected_student.name }} — PACE marks</p>
+        <span class="count-badge">Grade {{ ace_grade }}</span>
+      </div>
+      <div class="profiles-actions">
+        <a class="secondary-btn" href="{{ url_for('ace', tab='grades', grade_id=selected_class.id) }}"><i class="ti ti-arrow-left"></i> Grade {{ ace_grade }} students</a>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('save_ace_student', class_id=selected_class.id, student_id=selected_student.id) }}" class="ace-entry-card">
+      <div class="ace-entry-head">
+        <h3>Record PACE marks</h3>
+        <p class="form-subheading">Only the marks you enter appear on the ACE report card. Leave a box empty if the PACE has not been done.</p>
+      </div>
+
+      {% for area in ace_areas %}
+        <section class="ace-area-block ace-area-{{ area|lower|replace(' ', '-') }}">
+          <p class="ace-area-title"><span class="ace-area-dot"></span>{{ area }}<span class="ace-area-count">{{ selected_student.area_scores[area]|length }} entered</span></p>
+          <div class="ace-pace-grid">
+            {% for pace in paces %}
+              <label class="ace-pace-field">PACE {{ pace }}
+                <input class="form-input" type="number" inputmode="decimal" min="0" max="100" step="0.01" name="score_{{ area|replace(' ', '_') }}_{{ pace }}" value="{% set mark = selected_student.scores.get(area ~ ':' ~ pace) %}{% if mark is not none %}{{ '%g'|format(mark) }}{% endif %}" placeholder="—">
+              </label>
+            {% endfor %}
+          </div>
+        </section>
+      {% endfor %}
+
+      <div class="ace-notes-grid">
+        <div class="form-group"><label class="form-label" for="ace-supervisor-report">Supervisor's Report</label><textarea class="form-input" id="ace-supervisor-report" name="supervisor_report">{{ selected_student.supervisor_report }}</textarea></div>
+        <div class="form-group"><label class="form-label" for="ace-principal-report">Principal's Report</label><textarea class="form-input" id="ace-principal-report" name="principal_report">{{ selected_student.principal_report }}</textarea></div>
+      </div>
+
+      <div class="ace-entry-actions">
+        <button type="submit" class="secondary-btn" name="next_mode" value="report"><i class="ti ti-eye"></i> Save and view report</button>
+        <button type="submit" class="primary-btn" name="next_mode" value="entry"><i class="ti ti-check"></i> Save marks</button>
+      </div>
+    </form>
+
+  {# ───────────── 4. Reports tab · one grade ───────────── #}
+  {% else %}
+    <div class="profiles-toolbar">
+      <div class="profiles-title">
+        <p class="profiles-heading">Grade {{ ace_grade }} — Report Cards</p>
+        <span class="count-badge">{{ 1 if students else 0 }}</span>
+      </div>
+      <div class="profiles-actions">
+        <select class="form-input" id="aceReportType" aria-label="Report type" style="width:auto;"
+                onchange="window.location.href=this.value">
+          <option value="{{ url_for('ace', tab='reports', grade_id=selected_class.id, report_type='mid') }}" {% if report_type == 'mid' %}selected{% endif %}>Mid-term</option>
+          <option value="{{ url_for('ace', tab='reports', grade_id=selected_class.id, report_type='eot') }}" {% if report_type == 'eot' %}selected{% endif %}>End of term</option>
+        </select>
+        <a class="secondary-btn" href="{{ url_for('ace', tab='reports') }}"><i class="ti ti-arrow-left"></i> All Grades</a>
+      </div>
+    </div>
+
+    <div class="profiles-table-wrap">
+      <table class="profiles-table">
+        <thead><tr><th>Class</th><th>Students</th><th>Type</th><th>Term</th><th>Status</th><th>Generated</th><th class="col-action">Actions</th></tr></thead>
+        <tbody>
+          {% if students %}
+            <tr>
+              <td class="name-cell"><a class="academic-class-link" href="{{ url_for('ace', tab='reports', grade_id=selected_class.id) }}">ACE Grade {{ ace_grade }}</a></td>
+              <td><div class="report-student-names ace-student-names">{% for student in students %}<span>{{ student.name }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</div></td>
+              <td>{{ report_type_label }}</td>
+              <td>{{ term_name }}</td>
+              <td><span class="status-badge status-active">Generated</span></td>
+              <td><button type="button" class="link-btn" data-ace-preview>{{ students|length }}</button></td>
+              <td class="col-action"><div class="row-actions">
+                <button type="button" class="icon-btn" title="View" data-ace-preview><i class="ti ti-eye"></i></button>
+                <button type="button" class="icon-btn" title="Download all (PDF)" data-ace-download-all><i class="ti ti-download"></i></button>
+              </div></td>
+            </tr>
+          {% else %}
+            <tr class="ace-empty-row"><td colspan="7">No students are enrolled in this ACE grade yet, so there are no report cards to show.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {# ───────────── Report source + preview (shared with Primary's look) ───────────── #}
+  {% if selected_class and students and active_tab != 'attendance' and (active_tab == 'reports' or not selected_student) %}
+    <div id="aceReportSource" aria-hidden="true">
+      {% for student in students %}{{ report_page(student) }}{% endfor %}
+    </div>
+
+    <div class="report-preview-overlay" id="acePreviewOverlay"
+         data-grade="{{ ace_grade }}" data-report-slug="{{ 'mid-term' if report_type == 'mid' else 'end-of-term' }}" data-term="{{ term_roman }} {{ report_year }}"
+         data-generated="{{ term_name }}" data-auto-student="{{ request.args.get('student_id', '') if active_tab == 'reports' else '' }}">
+      <div class="report-preview-shell">
+        <div class="report-preview-header">
+          <div>
+            <p class="report-preview-title" id="acePreviewTitle">ACE Grade {{ ace_grade }} - {{ report_type_label }}</p>
+            <p class="report-preview-subtitle" id="acePreviewSubtitle">{{ term_name }}</p>
+          </div>
+          <button type="button" class="icon-btn" id="acePreviewClose" title="Close"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="report-preview-tabs">
+          <button type="button" class="report-preview-tab active" data-preview-mode="individual">Individual</button>
+          <button type="button" class="report-preview-tab" data-preview-mode="all">All-in-One</button>
+        </div>
+        <div class="report-preview-body">
+          <aside class="report-student-panel">
+            <div class="search-box report-search"><i class="ti ti-search"></i><input type="search" id="aceStudentSearch" placeholder="Search"></div>
+            <div class="report-student-list" id="aceStudentList"></div>
+          </aside>
+          <section class="report-document-area">
+            <div class="report-document-actions">
+              <span id="acePageCount">1 Page</span>
+              <button type="button" class="icon-btn" id="aceDownloadBtn" title="Download"><i class="ti ti-download"></i><span class="report-download-label">Download</span></button>
+            </div>
+            <div class="report-document" id="aceDocument"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lobster+Two:wght@700&display=swap">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="{{ url_for('static', filename='js/ace-actions.js') }}?v=2"></script>
+  {% if active_tab == 'attendance' and selected_class %}
+    <script src="{{ url_for('static', filename='js/date-picker.js') }}"></script>
+    <script>
+      const ATTENDANCE_URL_BASE = "/attendance";
+      const ATTENDANCE_STATUSES = {{ attendance_statuses|tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/attendance-actions.js') }}"></script>
+  {% endif %}
+{% endblock %}

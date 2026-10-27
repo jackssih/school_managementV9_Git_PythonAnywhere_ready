@@ -196,7 +196,7 @@
     // the staff member has one, otherwise a blank line for signing by hand.
     function signatureBlock(signatureUrl) {
         return signatureUrl
-            ? `<span class="report-signature-label">Signature:</span> <img class="report-signature-img" src="${escapeHtml(signatureUrl)}" alt="Signature">`
+            ? `<span class="report-signature-label">Signature:</span> <span class="report-signature-line has-img"><img class="report-signature-img" src="${escapeHtml(signatureUrl)}" alt="Signature"></span>`
             : `<span class="report-signature-label">Signature:</span> <span class="report-signature-line"></span>`;
     }
 
@@ -557,6 +557,14 @@
         return { mark: g ? Math.floor(numeric(r.mark)) : null, grade: g };
     }
 
+    // Heading on the primary report card follows the report that was generated:
+    // End of term is the "Terminal" report; Mid-term and B.O.T. say so.
+    function terminalTitleForReport(reportType) {
+        if (reportType === "Mid-term") return "MID TERM REPORT";
+        if (reportType === "Beginning of term") return "BEGINNING OF TERM REPORT";
+        return "TERMINAL REPORT";
+    }
+
     function renderTerminalReport(student) {
         const groups = groupMarkRows(student);
         const periods = ["B.O.T.", "Mid", "EOT"];
@@ -639,7 +647,7 @@
                     ${logo}
                 </div>
 
-                <p class="jsr-title"><span>TERMINAL REPORT</span></p>
+                <p class="jsr-title"><span>${escapeHtml(terminalTitleForReport(activeReport && activeReport.report_type))}</span></p>
 
                 <div class="jsr-meta">
                     <div class="jsr-line">
@@ -879,12 +887,38 @@
         `).join("") : '<p class="form-subheading">No students found.</p>';
     }
 
+    // --- Mobile preview -------------------------------------------------
+    // On phones the preview shows only the All-in-One view plus the Download
+    // button (the student list and Individual/All-in-One tabs are hidden in
+    // CSS), and every A4 page is scaled down to fit the screen width.
+    const REPORT_DESIGN_WIDTH = 820;
+    const mobileQuery = window.matchMedia("(max-width: 760px)");
+
+    function isMobileView() {
+        return mobileQuery.matches;
+    }
+
+    function fitReportPages() {
+        const documentEl = document.getElementById("reportDocument");
+        const area = documentEl && documentEl.closest(".report-document-area");
+        if (!documentEl || !area) return;
+        if (!isMobileView()) {
+            documentEl.style.removeProperty("--report-fit-scale");
+            return;
+        }
+        const available = area.clientWidth - 16;
+        const scale = Math.max(0.2, Math.min(1, available / REPORT_DESIGN_WIDTH));
+        documentEl.style.setProperty("--report-fit-scale", scale.toFixed(4));
+    }
+
     function renderPreview() {
         const documentEl = document.getElementById("reportDocument");
+        const mode = isMobileView() ? "all" : previewMode;
 
         if (activeReport?.report_type === "Attendance report") {
             documentEl.innerHTML = renderAttendanceReportCard(activeReport);
             document.getElementById("reportPageCount").textContent = "1 Page";
+            fitReportPages();
             return;
         }
 
@@ -895,7 +929,7 @@
             return;
         }
         if (isMiniSlipReport()) {
-            if (previewMode === "all") {
+            if (mode === "all") {
                 const pairs = miniSlipPairs(students);
                 documentEl.innerHTML = pairs.map(([a, b]) => renderMiniSlipPage(a, b)).join("");
                 document.getElementById("reportPageCount").textContent = `${pairs.length} Pages`;
@@ -905,10 +939,11 @@
                 document.getElementById("reportPageCount").textContent = "1 Page";
             }
             renderStudentList();
+            fitReportPages();
             return;
         }
 
-        if (previewMode === "all") {
+        if (mode === "all") {
             documentEl.innerHTML = students.map(renderReportCard).join("");
             document.getElementById("reportPageCount").textContent = `${students.length} Pages`;
         } else {
@@ -916,6 +951,7 @@
             document.getElementById("reportPageCount").textContent = "1 Page";
         }
         renderStudentList();
+        fitReportPages();
     }
 
     function openPreview(record) {
@@ -1005,6 +1041,18 @@
         document.getElementById("reportDownloadBtn").addEventListener("click", () => {
             downloadReportPdf();
         });
+        // Re-render when the phone rotates or the window crosses the mobile breakpoint.
+        let lastMobile = isMobileView();
+        window.addEventListener("resize", () => {
+            const overlay = document.getElementById("reportPreviewOverlay");
+            if (!overlay || !overlay.classList.contains("open")) return;
+            if (isMobileView() !== lastMobile) {
+                lastMobile = isMobileView();
+                renderPreview();
+            } else {
+                fitReportPages();
+            }
+        });
     });
 
     // Turn the currently rendered preview into an actual PDF file download.
@@ -1050,8 +1098,8 @@
             return;
         }
 
-        const pages = Array.from(source.querySelectorAll(".report-card-page"));
-        if (!pages.length) {
+        const sourcePages = Array.from(source.querySelectorAll(".report-card-page"));
+        if (!sourcePages.length) {
             if (pdfWindow && !pdfWindow.closed) pdfWindow.close();
             alert("There is no report page to download.");
             return;
@@ -1060,6 +1108,16 @@
         const originalIcon = downloadBtn.innerHTML;
         downloadBtn.disabled = true;
         downloadBtn.innerHTML = '<i class="ti ti-loader-2"></i>';
+
+        // Capture from an off-screen, full-size (820px) copy of the pages so
+        // the PDF is identical on phones and desktops and is not affected by
+        // the mobile preview scaling or the scrolling preview area.
+        const holder = document.createElement("div");
+        holder.id = "reportPrintContainer";
+        holder.className = "report-print-offscreen";
+        sourcePages.forEach((node) => holder.appendChild(node.cloneNode(true)));
+        document.body.appendChild(holder);
+        const pages = Array.from(holder.querySelectorAll(".report-card-page"));
 
         // Everything below — including building the jsPDF instance — now runs
         // inside the try/finally so any failure always re-enables the button
@@ -1120,8 +1178,17 @@
                     logging: false,
                     scrollX: 0,
                     scrollY: -window.scrollY,
-                    windowWidth: document.documentElement.clientWidth,
+                    windowWidth: Math.max(document.documentElement.clientWidth, 900),
                     onclone: (clonedDocument) => {
+                        // Bring the off-screen capture copy back to the origin
+                        // inside html2canvas's own private clone only.
+                        const clonedHolder = clonedDocument.getElementById("reportPrintContainer");
+                        if (clonedHolder) {
+                            clonedHolder.classList.remove("report-print-offscreen");
+                            clonedHolder.style.left = "0px";
+                            clonedHolder.style.top = "0px";
+                            clonedHolder.style.zIndex = "300";
+                        }
                         // PDF-only fixes: keep the on-screen design unchanged,
                         // but make gradient text render reliably in canvas/PDF.
                         clonedDocument.querySelectorAll(".report-school-name").forEach((el, schoolIndex) => {
@@ -1345,6 +1412,7 @@
             if (pdfWindow && !pdfWindow.closed) pdfWindow.close();
             alert("Something went wrong generating the PDF. Please try again.");
         } finally {
+            holder.remove();
             downloadBtn.disabled = false;
             downloadBtn.innerHTML = originalIcon;
         }

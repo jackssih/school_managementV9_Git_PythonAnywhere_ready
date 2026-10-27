@@ -26,7 +26,7 @@
                 {% for item in nav_items %}
                     {% set icon_map = {
                         'home':'ti-layout-dashboard', 'profiles':'ti-users', 'academics':'ti-school',
-                        'grades':'ti-notes', 'attendance':'ti-calendar-check', 'reports':'ti-file-analytics',
+                        'grades':'ti-notes', 'ace':'ti-certificate', 'attendance':'ti-calendar-check', 'reports':'ti-file-analytics',
                         'timetable':'ti-calendar-time', 'events':'ti-calendar-event'
                     } %}
                     <a href="{{ url_for(item.endpoint) }}" class="side-nav-link {% if item.endpoint == active_endpoint %}active{% endif %}">
@@ -87,7 +87,7 @@
                         <div class="avatar">
                             {% if user.photo_url %}<img src="{{ user.photo_url }}" alt="{{ user.name }}">{% else %}{{ user.initials }}{% endif %}
                         </div>
-                        <div class="profile-copy"><strong>{{ user.name }}</strong><span>{{ 'Administrator' if user.role == 'admin' else 'Teacher' }}</span></div>
+                        <div class="profile-copy"><strong>{{ user.name }}</strong><span>{{ 'Administrator' if user.role == 'admin' else user.role|title }}</span></div>
                         <i class="ti ti-chevron-down"></i>
                         <div class="profile-menu" id="profileMenu">
                             <a href="{{ url_for('profile') }}" class="profile-menu-item"><i class="ti ti-user"></i> Profile</a>

@@ -6,14 +6,20 @@ import secrets
 import shutil
 import string
 from datetime import date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 from functools import wraps
 from urllib.parse import urlencode
+
+from sqlalchemy import inspect, text
 
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, abort, Response, session, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 from models import (
+    AcePaceResult,
+    AceReportNote,
     AcademicClass,
     Assessment,
     AssessmentResult,
@@ -170,12 +176,60 @@ def staff_photo_image(staff_id):
     return Response(staff.photo_data, mimetype=staff.photo_mimetype or "image/png")
 
 
+def trim_signature_image(data):
+    """Crop the empty margin around a signature and make the white paper
+    background transparent. Photos/scans of signatures usually carry a lot of
+    blank space (especially below the ink), which made the signature float
+    above the signing line and look tiny once scaled to fit. Returns PNG bytes,
+    or None if Pillow isn't available / the image can't be processed."""
+    try:
+        from io import BytesIO
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        image = Image.open(BytesIO(data))
+        image.load()
+        rgba = image.convert("RGBA")
+        pixels = rgba.load()
+        width, height = rgba.size
+        for y in range(height):
+            for x in range(width):
+                r, g, b, a = pixels[x, y]
+                luminance = (r * 299 + g * 587 + b * 114) // 1000
+                # white/near-white paper -> transparent; dark ink -> opaque.
+                if luminance >= 235:
+                    ink_alpha = 0
+                elif luminance <= 175:
+                    ink_alpha = 255
+                else:
+                    ink_alpha = int((235 - luminance) * 255 / 60)
+                pixels[x, y] = (r, g, b, min(a, ink_alpha))
+        box = rgba.getchannel("A").point(lambda v: 255 if v > 24 else 0).getbbox()
+        if not box:
+            return None
+        pad = 2
+        box = (max(0, box[0] - pad), max(0, box[1] - pad), min(width, box[2] + pad), min(height, box[3] + pad))
+        out = BytesIO()
+        rgba.crop(box).save(out, format="PNG", optimize=True)
+        return out.getvalue()
+    except Exception:
+        return None
+
+
 @app.route("/uploads/staff/<int:staff_id>/signature")
 def staff_signature_image(staff_id):
     staff = Staff.query.get_or_404(staff_id)
     if not staff.signature_data:
         abort(404)
-    return Response(staff.signature_data, mimetype=staff.signature_mimetype or "image/png")
+    trimmed = trim_signature_image(staff.signature_data)
+    if trimmed:
+        response = Response(trimmed, mimetype="image/png")
+    else:
+        response = Response(staff.signature_data, mimetype=staff.signature_mimetype or "image/png")
+    # The URL carries ?v=<updated_at>, so it changes whenever the signature does.
+    response.headers["Cache-Control"] = "private, max-age=3600"
+    return response
 
 
 @app.route("/uploads/school/logo")
@@ -304,10 +358,18 @@ NAV_ITEMS = [
     {"label": "Profiles", "endpoint": "profiles"},
     {"label": "Academics", "endpoint": "academics"},
     {"label": "Grades", "endpoint": "grades"},
+    {"label": "ACE", "endpoint": "ace"},
     {"label": "Attendance", "endpoint": "attendance"},
     {"label": "Reports", "endpoint": "reports"},
     {"label": "Timetable", "endpoint": "timetable"},
 ]
+
+STAFF_ROLES = ("teacher", "supervisor", "headteacher", "principal", "admin")
+
+# Roles that only one account may hold, with the label used in error messages.
+# Head Teacher signs the primary report cards, Principal signs the ACE report
+# cards. Admin only oversees the system and has no signature on any report.
+SINGLE_HOLDER_ROLES = {"principal": "Principal", "headteacher": "Head Teacher"}
 
 TERMS = [
     {"id": 1, "name": "Term 1, 2026", "start": date(2026, 2, 3), "end": date(2026, 5, 8)},
@@ -468,6 +530,17 @@ REPORT_TYPES = [
     "End of term",
     "Assessment report",
 ]
+
+# ACE is deliberately independent from the ordinary subject/aggregate model.
+# These are the approved PACE number ranges supplied by the school.
+ACE_AREAS_LOWER = ["Maths", "English", "Social Studies", "Word Building", "Science", "Animal Science", "Bible Reading"]
+ACE_AREAS_UPPER = ["Maths", "English", "Social Studies", "Word Building", "Science", "Literature and Creative Writing", "Bible Reading"]
+ACE_PACE_RANGES = {
+    1: range(1001, 1013), 2: range(1013, 1025), 3: range(1025, 1037),
+    4: range(1037, 1049), 5: range(1049, 1061), 6: range(1061, 1073),
+    7: range(1073, 1085), 8: range(1073, 1085),
+    9: range(1085, 1100), 10: range(1100, 1115), 11: range(1115, 1130), 12: range(1130, 1145),
+}
 
 REPORT_BATCHES = [
     {"id": 1, "class_name": "Primary 5", "report_type": "End of term", "created_at": "07-07-2026 12:30", "status": "Generated", "generated_student_ids": [1]},
@@ -904,6 +977,28 @@ def next_term_start_label(current_term):
     return ordinal_date_label(next_term.start_date) if next_term else ""
 
 
+def long_date_label(value):
+    """'14th September, 2026' — the long form used on the ACE report card."""
+    if not value:
+        return ""
+    day = value.day
+    suffix = "th" if 11 <= day % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{day}{suffix} {value.strftime('%B')}, {value.year}"
+
+
+def next_term_range_labels(current_term):
+    """(start, end) of the term after the current one, as long date labels —
+    feeds the 'Next Term Begins on / Ends on' line at the foot of the ACE
+    report card. Both are '' when no later term has been set up."""
+    query = Term.query.order_by(Term.start_date)
+    if current_term:
+        query = query.filter(Term.start_date > current_term.start_date)
+    next_term = query.first()
+    if not next_term:
+        return ("", "")
+    return (long_date_label(next_term.start_date), long_date_label(next_term.end_date))
+
+
 _TERM_NUMBER_WORDS = {1: "ONE", 2: "TWO", 3: "THREE", 4: "FOUR", 5: "FIVE", 6: "SIX"}
 
 
@@ -921,10 +1016,10 @@ def term_title_parts(term):
 
 
 def head_teacher_record():
-    """The admin account treated as 'the head teacher' for the report
-    card's signature line — the school's admin accounts stand in for that
-    role since there's no separate head-teacher flag on Staff."""
-    head_teacher = Staff.query.filter_by(role="admin").order_by(Staff.id).first()
+    """The single Head Teacher account, used on the primary report cards.
+    Admin accounts never sign reports, so there is no admin fallback: until a
+    Head Teacher exists the signature line is simply left blank."""
+    head_teacher = Staff.query.filter_by(role="headteacher").order_by(Staff.id).first()
     if not head_teacher:
         return {"name": "", "signature_url": ""}
     return {
@@ -1198,6 +1293,7 @@ def academic_class_record(academic_class):
         "id": academic_class.id,
         "name": academic_class.name,
         "teacher": academic_class.class_teacher.name if academic_class.class_teacher else "",
+        "curriculum": academic_class.curriculum or "Standard",
     }
 
 
@@ -1340,7 +1436,9 @@ def get_student_names(student_ids):
 
 
 def teacher_names():
-    return [m.name for m in Staff.query.filter_by(role="teacher").order_by(Staff.name).all()]
+    # Supervisors are selectable for ACE classes through the same class
+    # assignment control that assigns class teachers for the primary stream.
+    return [m.name for m in Staff.query.filter(Staff.role.in_(("teacher", "supervisor"))).order_by(Staff.name).all()]
 
 
 def students_payload(students):
@@ -1372,6 +1470,12 @@ def academic_class_records():
             }
         )
     return records
+
+
+def standard_academic_class_records():
+    """The ordinary Academics/Grades/Reports modules deliberately exclude
+    ACE. ACE has its own dedicated workspace and workflow."""
+    return [record for record in academic_class_records() if record.get("curriculum", "Standard") != "ACE"]
 
 
 def subject_records(class_id=None):
@@ -1414,6 +1518,9 @@ def enrollment_class_records():
     """
     records = []
     for class_record in all_academic_classes():
+        academic_class = AcademicClass.query.get(class_record["id"])
+        if academic_class and academic_class.curriculum == "ACE":
+            continue
         students = get_class_students(class_record["name"])
         records.append({
             **class_record,
@@ -1615,6 +1722,9 @@ def grade_class_records(tab):
     comment_list = comment_records() if tab == "comments" else []
     records = []
     for class_record in all_academic_classes():
+        academic_class = AcademicClass.query.get(class_record["id"])
+        if academic_class and academic_class.curriculum == "ACE":
+            continue
         class_name = class_record["name"]
         students = get_class_students(class_name)
         subjects = [s for s in all_subjects() if s["class_name"] == class_name]
@@ -1886,6 +1996,23 @@ def todays_attendance_percentage(today=None):
 
 def attendance_redirect():
     return url_for("attendance")
+
+
+def ace_class_lookup():
+    """(ids, names) of the ACE grades. ACE has its own Attendance tab, so these
+    are kept out of the general Attendance page."""
+    rows = AcademicClass.query.filter_by(curriculum="ACE").all()
+    return {row.id for row in rows}, {row.name for row in rows}
+
+
+def attendance_target_for(academic_class):
+    """Where to land after saving/creating a sheet: ACE grades go back to the
+    ACE Attendance tab, everything else to the general Attendance page."""
+    if academic_class is not None and academic_class.curriculum == "ACE":
+        return url_for("ace", tab="attendance", grade_id=academic_class.id)
+    if academic_class is not None:
+        return url_for("attendance", class_id=academic_class.id)
+    return url_for("attendance", view="records")
 
 
 def attendance_json_or_redirect(message, redirect_url=None):
@@ -2460,7 +2587,7 @@ def base_context(active_endpoint):
     current_term = get_current_term()
     title_map = {
         "home": "Dashboard", "profiles": "Students & Staff", "academics": "Academics",
-        "grades": "Grades", "attendance": "Attendance", "reports": "Reports",
+        "grades": "Grades", "ace": "ACE", "attendance": "Attendance", "reports": "Reports",
         "timetable": "Timetable", "events": "Events", "settings_school": "Settings",
         "profile": "Profile", "change_password": "Change Password",
     }
@@ -2989,9 +3116,17 @@ def home():
     lower_students = 0
     upper_students = 0
     unassigned_students = 0
+    ace_grade_counts = {grade: 0 for grade in range(1, 13)}
+    class_curricula = {
+        academic_class.name: academic_class.curriculum
+        for academic_class in AcademicClass.query.all()
+    }
     for (class_name,) in db.session.query(Student.current_class_name).all():
         if not class_name or not class_name.strip():
             unassigned_students += 1
+            continue
+        if class_curricula.get(class_name) == "ACE":
+            ace_grade_counts[ace_grade_for_class(class_name)] += 1
             continue
         match = re.search(r"(\d+)", class_name)
         grade = int(match.group(1)) if match else None
@@ -3004,6 +3139,11 @@ def home():
 
     attendance_value = todays_attendance_percentage()
     attendance_trend = home_attendance_trend()
+    ace_distribution = [
+        {"grade": grade, "students": ace_grade_counts[grade]}
+        for grade in range(1, 13)
+    ]
+    ace_students = sum(ace_grade_counts.values())
     stats = [
         {"label": "Total Students", "value": str(total_students), "note": "All students in the system"},
         {"label": "Teachers", "value": str(Staff.query.count()), "note": "Active staff"},
@@ -3020,6 +3160,8 @@ def home():
         "lower_percent": (lower_students / total_students * 100) if total_students else 0,
         "upper_percent": (upper_students / total_students * 100) if total_students else 0,
         "unassigned_percent": (unassigned_students / total_students * 100) if total_students else 0,
+        "ace_distribution": ace_distribution,
+        "ace_students": ace_students,
         "attendance_trend": attendance_trend,
         "recent_activities": home_recent_activities(),
         "events": [
@@ -3338,7 +3480,8 @@ def edit_profile():
             account.photo_mimetype = photo_mimetype
 
     signature_file = request.files.get("signature")
-    if signature_file and signature_file.filename:
+    # Admin accounts only oversee the system; they don't sign reports.
+    if signature_file and signature_file.filename and account.role != "admin":
         if not allowed_photo(signature_file.filename):
             message = "Signature must be a PNG, JPG, GIF, or WEBP image."
             if wants_json:
@@ -3501,8 +3644,11 @@ def new_staff():
         elif Staff.query.filter_by(email=form["email"]).first():
             errors["email"] = "That email is already in use."
 
-        if form["role"] not in ("teacher", "admin"):
+        if form["role"] not in STAFF_ROLES:
             form["role"] = "teacher"
+        elif form["role"] in SINGLE_HOLDER_ROLES and Staff.query.filter_by(role=form["role"]).first():
+            label = SINGLE_HOLDER_ROLES[form["role"]]
+            errors["role"] = f"Only one {label} account can exist. Edit the current {label} instead."
 
         if errors:
             if wants_json:
@@ -3524,7 +3670,7 @@ def new_staff():
             db.session.add(new_account)
             db.session.commit()
 
-            access_note = "full access" if form["role"] == "admin" else "access limited to student data only"
+            access_note = "full access" if form["role"] == "admin" else "an account with access to student and report data"
             flash(
                 f"{form['name']} was added with {access_note}. Sign-in email: {form['email']} — "
                 f"temporary password: {temp_password}. Share this with them directly; they'll be asked "
@@ -3624,7 +3770,7 @@ def bulk_upload_staff():
         email = (row.get("email") or "").strip().lower()
         phone = (row.get("phone") or "").strip()
         role = (row.get("role") or "").strip().lower()
-        if role not in ("teacher", "admin"):
+        if role not in STAFF_ROLES:
             role = "teacher"
 
         if not name:
@@ -3635,6 +3781,9 @@ def bulk_upload_staff():
             continue
         if email in seen_emails or Staff.query.filter_by(email=email).first():
             skipped.append({"row": row_number, "reason": f"Email {email} is already in use."})
+            continue
+        if role in SINGLE_HOLDER_ROLES and (Staff.query.filter_by(role=role).first() or any((item.get("role") or "").strip().lower() == role for item in rows[:row_number - 2])):
+            skipped.append({"row": row_number, "reason": f"Only one {SINGLE_HOLDER_ROLES[role]} account can exist."})
             continue
 
         seen_emails.add(email)
@@ -3784,7 +3933,20 @@ def edit_staff(staff_id):
     member.name = name
     member.email = email
     member.phone = request.form.get("phone", "").strip()
-    member.role = request.form.get("role", member.role or "teacher")
+    requested_role = request.form.get("role", member.role or "teacher").strip().lower()
+    if requested_role not in STAFF_ROLES:
+        requested_role = "teacher"
+    existing_holder = (
+        Staff.query.filter(Staff.role == requested_role, Staff.id != member.id).first()
+        if requested_role in SINGLE_HOLDER_ROLES else None
+    )
+    if existing_holder:
+        message = f"Only one {SINGLE_HOLDER_ROLES[requested_role]} account can exist."
+        if wants_json:
+            return jsonify({"success": False, "errors": {"role": message}}), 400
+        flash(message, "error")
+        return redirect(url_for("profiles", tab="staff"))
+    member.role = requested_role
     db.session.commit()
 
     flash(f"{member.name}'s details were updated.", "success")
@@ -3896,7 +4058,7 @@ def academics():
         {
             "active_tab": tab,
             "search_query": search_query,
-            "classes": academic_class_records(),
+            "classes": standard_academic_class_records(),
             "students": all_student_records,
             "teachers": teacher_names(),
             "promotion_actions": ["Promoted", "Second sitting", "Repeating", "Discontinued"],
@@ -3912,7 +4074,7 @@ def academics():
     if tab == "subjects":
         # Subjects are intentionally two-level: the landing page lists classes,
         # then a class-specific route lists only that class's subjects.
-        records = academic_class_records()
+        records = standard_academic_class_records()
         if search_query:
             query = search_query.lower()
             records = [r for r in records if query in r["name"].lower() or query in r["teacher"].lower()]
@@ -3929,7 +4091,7 @@ def academics():
             "subject_detail": False,
         })
     elif tab == "enrollment":
-        records = enrollment_class_records()
+        records = [record for record in enrollment_class_records() if record.get("curriculum", "Standard") != "ACE"]
         if search_query:
             query = search_query.lower()
             records = [r for r in records if query in r["name"].lower() or query in r["teacher"].lower()]
@@ -3962,7 +4124,7 @@ def academics():
             "latest_promotion_run": promotion_run_summary(latest_promotion_run()),
         })
     else:
-        records = academic_class_records()
+        records = standard_academic_class_records()
         if search_query:
             query = search_query.lower()
             records = [r for r in records if query in r["name"].lower() or query in r["teacher"].lower()]
@@ -3990,7 +4152,8 @@ def new_academic_class():
         return jsonify({"success": False, "errors": {"name": "That class already exists."}}), 400
 
     class_teacher = Staff.query.filter_by(name=teacher).first() if teacher else None
-    db.session.add(AcademicClass(name=name, level=class_level(name), class_teacher=class_teacher))
+    curriculum = request.form.get("curriculum", "Standard").strip()
+    db.session.add(AcademicClass(name=name, level=class_level(name), curriculum=curriculum if curriculum in ("Standard", "ACE") else "Standard", class_teacher=class_teacher))
     db.session.commit()
     return json_or_redirect("classes", f"{name} was added.")
 
@@ -4014,6 +4177,8 @@ def edit_academic_class(class_id):
     class_record.name = name
     class_record.level = class_level(name)
     class_record.class_teacher = Staff.query.filter_by(name=teacher).first() if teacher else None
+    curriculum = request.form.get("curriculum", class_record.curriculum or "Standard").strip()
+    class_record.curriculum = curriculum if curriculum in ("Standard", "ACE") else "Standard"
     # Subjects and enrollments link to the class by id, so renaming here is all
     # that's needed for them. Students only, since current_class_name is stored
     # as plain text on the student row, need updating explicitly.
@@ -4966,6 +5131,10 @@ def reports():
     source_records = all_published_reports() if tab == "published" else all_report_batches()
     records = report_records(source_records)
     selected_class = AcademicClass.query.get(class_id) if class_id else None
+    if selected_class and selected_class.curriculum == "ACE":
+        return redirect(url_for("ace", tab="reports", grade_id=selected_class.id))
+    standard_names = {item.name for item in AcademicClass.query.filter(AcademicClass.curriculum != "ACE").all()}
+    records = [record for record in records if record.get("class_name") in standard_names]
     if selected_class:
         records = [r for r in records if r.get("class_name") == selected_class.name]
     elif report_scope in ("All classes", "Lower primary", "Upper primary"):
@@ -4991,7 +5160,7 @@ def reports():
         sort = "created_desc"
         records.sort(key=lambda r: r["created_at"], reverse=True)
 
-    academic_classes = academic_class_records()
+    academic_classes = standard_academic_class_records()
     sorted_classes = sorted(academic_classes, key=lambda c: c["name"].lower())
 
     total_count = len(records)
@@ -5039,6 +5208,268 @@ def reports():
         }
     )
     return render_template("reports.html", **context)
+
+
+def ace_grade_for_class(class_name):
+    """Extract the number from names such as 'ACE Grade 4' or 'ACE 4'."""
+    match = re.search(r"(?:grade\s*)?(\d{1,2})", class_name or "", re.I)
+    grade = int(match.group(1)) if match else 1
+    return min(12, max(1, grade))
+
+
+def ensure_ace_grades():
+    """ACE always exposes Grades 1-12, without requiring the administrator
+    to build each grade in Academics first."""
+    existing = {ace_grade_for_class(item.name): item for item in AcademicClass.query.filter_by(curriculum="ACE").all()}
+    for grade in range(1, 13):
+        if grade not in existing:
+            row = AcademicClass(name=f"ACE Grade {grade}", level=f"ACE Grade {grade}", curriculum="ACE")
+            db.session.add(row)
+            existing[grade] = row
+    db.session.commit()
+    return [existing[grade] for grade in range(1, 13)]
+
+
+def ace_areas_for_grade(grade):
+    """The supplied lower-grade ACE template uses Animal Science; the
+    upper template uses Literature and Creative Writing in that slot."""
+    return ACE_AREAS_LOWER if grade <= 2 else ACE_AREAS_UPPER
+
+
+def ace_student_context(student, term_name, areas):
+    scores = AcePaceResult.query.filter_by(student_id=student.id).all()
+    note = AceReportNote.query.filter_by(student_id=student.id, term_name=term_name).first()
+    area_scores = {area: [] for area in areas}
+    for row in scores:
+        if row.learning_area in area_scores:
+            area_scores[row.learning_area].append({"pace": row.pace_number, "score": ace_fraction_score(row.score)})
+    for results in area_scores.values():
+        results.sort(key=lambda item: item["pace"])
+    return {
+        "id": student.id,
+        "name": student.name,
+        "registration_number": student.registration_number,
+        "scores": {f"{row.learning_area}:{row.pace_number}": row.score for row in scores},
+        "area_scores": area_scores,
+        # Widest learning-area row — the report card grows past its usual
+        # nine PACE columns rather than dropping a mark.
+        "max_paces": max((len(results) for results in area_scores.values()), default=0),
+        "age": age_from_dob(student.date_of_birth),
+        "supervisor_report": note.supervisor_report if note else "",
+        "principal_report": note.principal_report if note else "",
+    }
+
+
+def ace_fraction_score(value):
+    """Render decimals as report-card mixed fractions: 90.5 -> 90 ½."""
+    try:
+        decimal = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return ""
+    whole = int(decimal // 1)
+    remainder = decimal - whole
+    if not remainder:
+        return str(whole)
+    fraction = Fraction(remainder).limit_denominator(100)
+    glyphs = {(1, 2): "½", (1, 4): "¼", (3, 4): "¾", (1, 3): "⅓", (2, 3): "⅔", (1, 8): "⅛", (3, 8): "⅜", (5, 8): "⅝", (7, 8): "⅞"}
+    fraction_text = glyphs.get((fraction.numerator, fraction.denominator), f"{fraction.numerator}/{fraction.denominator}")
+    return f"{whole} {fraction_text}" if whole else fraction_text
+
+
+@app.route("/ace")
+def ace():
+    tab = request.args.get("tab", "grades")
+    if tab not in ("grades", "reports", "attendance"):
+        tab = "grades"
+    ace_classes = ensure_ace_grades()
+    class_id = request.args.get("grade_id", type=int) or request.args.get("class_id", type=int)
+    selected_class = db.session.get(AcademicClass, class_id) if class_id else None
+    if selected_class and selected_class.curriculum != "ACE":
+        abort(404)
+    term = get_current_term()
+    term_name = term.name if term else "Current term"
+    # Which report is being produced: mid term or end of term (the default).
+    report_type = request.args.get("report_type", "eot")
+    if report_type not in ("mid", "eot"):
+        report_type = "eot"
+    report_type_label = "Mid-term" if report_type == "mid" else "End of term"
+    report_title = "MID TERM" if report_type == "mid" else "END OF TERM"
+    students = Student.query.filter_by(current_class_name=selected_class.name).order_by(Student.name).all() if selected_class else []
+    selected_student_id = request.args.get("student_id", type=int)
+    selected_student = next((student for student in students if student.id == selected_student_id), None)
+    grade = ace_grade_for_class(selected_class.name) if selected_class else 1
+    areas = ace_areas_for_grade(grade)
+    principal = Staff.query.filter_by(role="principal").order_by(Staff.id).first()
+    # The grade's own supervisor signs its report cards. If none has been
+    # assigned to the grade yet but the school has exactly one supervisor,
+    # use that person rather than leaving the signature blank.
+    ace_supervisor = selected_class.class_teacher if selected_class else None
+    if selected_class and not ace_supervisor:
+        only_supervisors = Staff.query.filter_by(role="supervisor").order_by(Staff.id).limit(2).all()
+        if len(only_supervisors) == 1:
+            ace_supervisor = only_supervisors[0]
+    ace_grade_records = [
+        {
+            "id": item.id,
+            "grade": ace_grade_for_class(item.name),
+            "students_count": Student.query.filter_by(current_class_name=item.name).count(),
+            "supervisor": item.class_teacher.name if item.class_teacher else "",
+            "supervisor_id": item.class_teacher_id or "",
+        }
+        for item in ace_classes
+    ]
+    # ACE Attendance tab: this grade's class registers, newest first.
+    ace_attendance_records = []
+    if tab == "attendance" and selected_class:
+        ace_attendance_records = [
+            r for r in attendance_records()
+            if r.get("attendance_type") == "Class"
+            and (r.get("class_id") == selected_class.id or r.get("class_name") == selected_class.name)
+        ]
+        ace_attendance_records.sort(key=lambda r: parse_created_on(r["date"]), reverse=True)
+    context = base_context("ace")
+    context.update({
+        "ace_attendance_records": ace_attendance_records,
+        "attendance_statuses": ATTENDANCE_STATUSES,
+        "active_tab": tab, "ace_classes": ace_classes, "selected_class": selected_class,
+        "report_type": report_type, "report_type_label": report_type_label, "report_title": report_title,
+        "ace_grade_records": ace_grade_records,
+        "students": [ace_student_context(student, term_name, areas) for student in students],
+        "selected_student": ace_student_context(selected_student, term_name, areas) if selected_student else None,
+        "available_students": Student.query.filter(~Student.current_class_name.like("ACE Grade %")).order_by(Student.name).all(),
+        "supervisors": Staff.query.filter_by(role="supervisor").order_by(Staff.name).all(),
+        "ace_grade": grade, "paces": list(ACE_PACE_RANGES[grade]), "ace_areas": areas,
+        "term_roman": {1: "I", 2: "II", 3: "III"}.get(int(re.search(r"\d+", term_name).group()) if re.search(r"\d+", term_name) else 0, term_name),
+        "report_year": term.start_date.year if term else date.today().year,
+        "term_name": term_name, "mode": "report" if tab == "reports" else "entry",
+        "next_term_begins": next_term_range_labels(term)[0],
+        "next_term_ends": next_term_range_labels(term)[1],
+        "school_info": school_info_dict(get_school()),
+        "supervisor": {
+            "name": ace_supervisor.name if ace_supervisor else "",
+            "signature_url": staff_signature_url(ace_supervisor) if ace_supervisor else "",
+        },
+        "principal": {
+            "name": principal.name if principal else "",
+            "signature_url": staff_signature_url(principal) if principal else "",
+        },
+    })
+    return render_template("ace.html", **context)
+
+
+@app.route("/ace/classes/<int:class_id>/supervisor", methods=["POST"])
+def ace_set_supervisor(class_id):
+    """Change (or clear) the supervisor of an ACE grade. The supervisor's name
+    and signature appear on that grade's report cards."""
+    academic_class = db.session.get(AcademicClass, class_id)
+    if not academic_class or academic_class.curriculum != "ACE":
+        abort(404)
+    supervisor_id = request.form.get("supervisor_id", type=int)
+    supervisor = db.session.get(Staff, supervisor_id) if supervisor_id else None
+    if supervisor and supervisor.role != "supervisor":
+        abort(400)
+    academic_class.class_teacher = supervisor
+    db.session.commit()
+    grade = ace_grade_for_class(academic_class.name)
+    if supervisor:
+        flash(f"{supervisor.name} is now the supervisor of ACE Grade {grade}.", "success")
+    else:
+        flash(f"Supervisor removed from ACE Grade {grade}.", "success")
+    tab = request.form.get("tab", "grades")
+    return redirect(url_for("ace", tab=tab if tab in ("grades", "reports", "attendance") else "grades"))
+
+
+@app.route("/ace/enroll", methods=["POST"])
+def ace_enroll():
+    class_id = request.form.get("class_id", type=int)
+    student_id = request.form.get("student_id", type=int)
+    supervisor_id = request.form.get("supervisor_id", type=int)
+    academic_class = db.session.get(AcademicClass, class_id) if class_id else None
+    student = db.session.get(Student, student_id) if student_id else None
+    supervisor = db.session.get(Staff, supervisor_id) if supervisor_id else None
+    if not academic_class or academic_class.curriculum != "ACE" or not student:
+        abort(404)
+    if supervisor and supervisor.role != "supervisor":
+        abort(400)
+    if supervisor:
+        academic_class.class_teacher = supervisor
+    student.current_class_name = academic_class.name
+    enrollment = Enrollment(date=date.today(), academic_class=academic_class, status="Enrolled")
+    enrollment.students.append(student)
+    db.session.add(enrollment)
+    db.session.commit()
+    flash(f"{student.name} was enrolled in {academic_class.name}.", "success")
+    return redirect(url_for("ace", tab="grades", grade_id=academic_class.id))
+
+
+@app.route("/ace/enroll/bulk", methods=["POST"])
+def ace_bulk_enroll():
+    class_id = request.form.get("class_id", type=int)
+    student_ids = [int(value) for value in request.form.getlist("student_ids") if value.isdigit()]
+    supervisor_id = request.form.get("supervisor_id", type=int)
+    academic_class = db.session.get(AcademicClass, class_id) if class_id else None
+    supervisor = db.session.get(Staff, supervisor_id) if supervisor_id else None
+    if not academic_class or academic_class.curriculum != "ACE" or not student_ids:
+        flash("Choose an ACE grade and at least one student.", "error")
+        return redirect(url_for("ace", tab="grades"))
+    if supervisor and supervisor.role != "supervisor":
+        abort(400)
+    students = Student.query.filter(Student.id.in_(student_ids)).all()
+    if not students:
+        flash("No valid students were selected.", "error")
+        return redirect(url_for("ace", tab="grades", grade_id=academic_class.id))
+    if supervisor:
+        academic_class.class_teacher = supervisor
+    enrollment = Enrollment(date=date.today(), academic_class=academic_class, status="Enrolled")
+    for student in students:
+        student.current_class_name = academic_class.name
+        enrollment.students.append(student)
+    db.session.add(enrollment)
+    db.session.commit()
+    flash(f"{len(students)} student(s) were enrolled in {academic_class.name}.", "success")
+    return redirect(url_for("ace", tab="grades", grade_id=academic_class.id))
+
+
+@app.route("/ace/classes/<int:class_id>/students/<int:student_id>", methods=["POST"])
+def save_ace_student(class_id, student_id):
+    academic_class = db.session.get(AcademicClass, class_id)
+    student = db.session.get(Student, student_id)
+    if not academic_class or academic_class.curriculum != "ACE" or not student or student.current_class_name != academic_class.name:
+        abort(404)
+    grade = ace_grade_for_class(academic_class.name)
+    allowed_paces = set(ACE_PACE_RANGES[grade])
+    for area in ace_areas_for_grade(grade):
+        field_area = area.replace(" ", "_")
+        for pace in allowed_paces:
+            raw = request.form.get(f"score_{field_area}_{pace}", "").strip()
+            existing = AcePaceResult.query.filter_by(student_id=student.id, learning_area=area, pace_number=pace).first()
+            if not raw:
+                if existing:
+                    db.session.delete(existing)
+                continue
+            try:
+                score = float(Decimal(raw))
+            except (InvalidOperation, ValueError):
+                flash(f"{area} PACE {pace} must be a number.", "error")
+                return redirect(url_for("ace", tab="grades", grade_id=class_id, student_id=student_id))
+            if not 0 <= score <= 100:
+                flash(f"{area} PACE {pace} must be between 0 and 100.", "error")
+                return redirect(url_for("ace", tab="grades", grade_id=class_id, student_id=student_id))
+            if existing:
+                existing.score = score
+            else:
+                db.session.add(AcePaceResult(student_id=student.id, learning_area=area, pace_number=pace, score=score))
+    term = get_current_term()
+    term_name = term.name if term else "Current term"
+    note = AceReportNote.query.filter_by(student_id=student.id, term_name=term_name).first()
+    if not note:
+        note = AceReportNote(student_id=student.id, term_name=term_name)
+        db.session.add(note)
+    note.supervisor_report = request.form.get("supervisor_report", "").strip()
+    note.principal_report = request.form.get("principal_report", "").strip()
+    db.session.commit()
+    flash(f"ACE PACE results for {student.name} were saved.", "success")
+    return redirect(url_for("ace", tab="reports" if request.form.get("next_mode") == "report" else "grades", grade_id=class_id, student_id=student_id))
 
 
 @app.route("/reports/generate", methods=["POST"])
@@ -5284,8 +5715,16 @@ def attendance():
     view = request.args.get("view", "classes" if not class_id else "class")
     search_query = request.args.get("q", "").strip()
     sort = request.args.get("sort", "date_desc")
-    all_records = attendance_records()
-    class_records = academic_class_records()
+    ace_ids, ace_names = ace_class_lookup()
+    if class_id and class_id in ace_ids:
+        return redirect(url_for("ace", tab="attendance", grade_id=class_id))
+    # ACE attendance lives on its own ACE > Attendance tab, so ACE grades and
+    # their registers are left out of this general page.
+    all_records = [
+        r for r in attendance_records()
+        if r.get("class_id") not in ace_ids and r.get("class_name") not in ace_names
+    ]
+    class_records = standard_academic_class_records()
     # Count every historical Class attendance sheet, including records created
     # before the class-first Attendance page existed. Match by class_id first,
     # then by the stored class name for older records without a class_id.
@@ -5426,10 +5865,7 @@ def new_attendance():
     # Stay on the class/records view the sheet was created from (instead of
     # bouncing back to the All Classes list) so it can be opened right away
     # to edit the marks.
-    if academic_class:
-        target = url_for("attendance", class_id=academic_class.id)
-    else:
-        target = url_for("attendance", view="records")
+    target = attendance_target_for(academic_class)
     return attendance_json_or_redirect(f"{entity} attendance was created.", redirect_url=target)
 
 
@@ -5454,23 +5890,23 @@ def update_attendance_marks(attendance_id):
                 )
             )
     db.session.commit()
-    if record.academic_class:
-        target = url_for("attendance", class_id=record.academic_class.id)
-    else:
-        target = url_for("attendance", view="records")
+    target = attendance_target_for(record.academic_class)
     return attendance_json_or_redirect(f"{record_dict['entity']} attendance was saved.", redirect_url=target)
 
 
 @app.route("/attendance/<int:attendance_id>/delete", methods=["POST"])
 def delete_attendance(attendance_id):
     record = AttendanceRecord.query.get(attendance_id)
+    target = attendance_redirect()
     if record:
         entity = record.entity
+        if record.academic_class is not None and record.academic_class.curriculum == "ACE":
+            target = attendance_target_for(record.academic_class)
         AttendanceMark.query.filter_by(attendance_record_id=attendance_id).delete()
         db.session.delete(record)
         db.session.commit()
         flash(f"{entity} attendance was removed.", "success")
-    return redirect(attendance_redirect())
+    return redirect(target)
 
 
 # --- Timetable ---
@@ -5835,6 +6271,22 @@ def _initialize_fresh_database():
     with app.app_context():
         try:
             db.create_all()
+
+            # create_all() does not add a newly introduced column to an
+            # existing SQLite/Postgres table. This tiny, idempotent upgrade
+            # keeps deployed Version 9 databases compatible without Alembic.
+            columns = {column["name"] for column in inspect(db.engine).get_columns("academic_classes")}
+            if "curriculum" not in columns:
+                db.session.execute(text("ALTER TABLE academic_classes ADD COLUMN curriculum VARCHAR(30) NOT NULL DEFAULT 'Standard'"))
+                db.session.commit()
+
+            # Existing PostgreSQL deployments created the ACE score column as
+            # an integer. Upgrade it so scores such as 90.5 can be stored.
+            if "ace_pace_results" in inspect(db.engine).get_table_names() and db.engine.dialect.name == "postgresql":
+                ace_columns = {column["name"]: column for column in inspect(db.engine).get_columns("ace_pace_results")}
+                if "score" in ace_columns and "INTEGER" in str(ace_columns["score"]["type"]).upper():
+                    db.session.execute(text("ALTER TABLE ace_pace_results ALTER COLUMN score TYPE DOUBLE PRECISION USING score::double precision"))
+                    db.session.commit()
 
             # Keep the new installation usable while leaving all school data
             # (students, classes, marks, attendance, reports, etc.) empty.

@@ -55,6 +55,17 @@
                     </div>
                 </div>
             </section>
+
+            <section class="dashboard-card distribution-panel dash-slide">
+                <div class="panel-head"><div><h3>ACE Distribution</h3><p>{{ ace_students }} student{{ '' if ace_students == 1 else 's' }} enrolled across ACE Grades 1–12</p></div><a href="{{ url_for('ace', tab='grades') }}" class="mini-link">Open ACE</a></div>
+                <div class="ace-dist-grid">
+                    {% for item in ace_distribution %}
+                    <a href="{{ url_for('ace', tab='grades') }}" class="ace-dist-item">
+                        <span>Grade {{ item.grade }}</span><strong>{{ item.students }}</strong>
+                    </a>
+                    {% endfor %}
+                </div>
+            </section>
         </div>
         <button type="button" class="carousel-arrow carousel-prev" aria-label="Previous panel"><i class="ti ti-chevron-left"></i></button>
         <button type="button" class="carousel-arrow carousel-next" aria-label="Next panel"><i class="ti ti-chevron-right"></i></button>

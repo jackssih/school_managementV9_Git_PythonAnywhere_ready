@@ -43,6 +43,7 @@
         window.openClassView = function(record) {
             openDetails(record.name, [
                 ["Name", record.name],
+                ["Curriculum", record.curriculum],
                 ["Enrolled students", record.enrolled_students],
                 ["Subjects", record.subject_names && record.subject_names.length ? record.subject_names.join(", ") : "—"],
                 ["Teacher", record.teacher],
@@ -52,6 +53,7 @@
         window.openClassEdit = function(record) {
             document.getElementById("classEditForm").action = `${CLASS_EDIT_URL_BASE}/${record.id}/edit`;
             setValue("class-edit-name", record.name);
+            setValue("class-edit-curriculum", record.curriculum || "Standard");
             setValue("class-edit-teacher", record.teacher);
             openModal("classEditModal");
         };

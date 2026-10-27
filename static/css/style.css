@@ -1174,6 +1174,8 @@ body {
 .secondary-btn {
     display: flex;
     align-items: center;
+    gap: 6px;
+    white-space: nowrap;
     padding: 8px 14px;
     border-radius: 8px;
     border: 1px solid var(--border);
@@ -2389,7 +2391,7 @@ body {
 
 .report-signature {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     white-space: nowrap;
     font-weight: 600;
     color: var(--text-primary);
@@ -2401,13 +2403,26 @@ body {
 
 .report-signature-line {
     display: inline-block;
-    width: 150px;
+    width: 170px;
+    min-height: 1.2em;
     border-bottom: 1px solid #222;
 }
 
+/* Signature image sits directly on its line (the image is trimmed of blank
+   margin by the server) and is allowed to be larger than before. */
+.report-signature-line.has-img {
+    display: inline-flex;
+    align-items: flex-end;
+    justify-content: center;
+    min-height: 64px;
+}
+
 .report-signature-img {
-    height: 42px;
-    max-width: 150px;
+    display: block;
+    height: auto;
+    width: auto;
+    max-height: 62px;
+    max-width: 100%;
     object-fit: contain;
 }
 
@@ -4943,7 +4958,7 @@ table thead th:last-child,
     display: inline-flex; align-items: flex-end; justify-content: center; flex: 1; min-height: 36px;
     border-bottom: 1.5px solid #222;
 }
-.jsr-page .jsr-sig-img { max-height: 42px; max-width: 100%; object-fit: contain; }
+.jsr-page .jsr-sig-img { max-height: 70px; max-width: 100%; width: auto; height: auto; object-fit: contain; display: block; }
 .jsr-page .jsr-head-sig { margin-top: 10px; text-align: center; }
 .jsr-page .jsr-head-sig .jsr-sig-box { display: flex; width: 78%; margin-left: auto; margin-right: 0; }
 .jsr-page .jsr-head-sig p { font: 700 13px "Times New Roman", Times, serif; margin: 4px 0 0; text-align: right; }
@@ -4988,12 +5003,13 @@ table thead th:last-child,
 .jsr-page .jsr-grp-right { flex: 0 0 46%; }
 .jsr-page .jsr-teacher-line .jsr-grp > span:not(.jsr-fill) { font: 15px "Segoe Print", "Comic Sans MS", "Trebuchet MS", sans-serif; align-items: flex-end; padding: 0 6px 2px 0; display: flex; }
 .jsr-page .jsr-teacher-line .jsr-teacher { flex: 1; font-size: 14px; font-family: "Segoe Print", "Comic Sans MS", sans-serif; justify-content: flex-start; }
-.jsr-page .jsr-teacher-line .jsr-sig-fill { flex: 1; min-height: 44px; }
+.jsr-page .jsr-teacher-line .jsr-sig-fill { flex: 1; min-height: 72px; }
+.jsr-page .jsr-line .jsr-fill.jsr-sig-fill { padding-bottom: 0; }
 
 /* Head teacher's signature: its own line sits under the signature line and
    the caption is centred beneath it. */
 .jsr-page .jsr-head-sig { width: 46%; margin: 22px 0 0 auto; text-align: center; }
-.jsr-page .jsr-head-sig .jsr-sig-box { display: flex; width: 100%; margin: 0; min-height: 40px; }
+.jsr-page .jsr-head-sig .jsr-sig-box { display: flex; width: 100%; margin: 0; min-height: 72px; padding: 0; }
 .jsr-page .jsr-head-sig p { margin: 4px 0 0; text-align: center; font: 700 13px "Times New Roman", Times, serif; }
 
 
@@ -5011,3 +5027,364 @@ table thead th:last-child,
 .jsr-page .jsr-grp .jsr-fill {
     border-bottom: 1.5px solid #222 !important;
 }
+
+/* =====================================================================
+   ACE module
+   ---------------------------------------------------------------------
+   ACE reuses the app's shared building blocks (profile-tabs, profiles-
+   toolbar, profiles-table, icon-btn, modal-*, report-preview-*) so it
+   looks like every other module. Only what is genuinely ACE-specific
+   lives here: the learning-area colours, the PACE-mark entry form and the
+   printed report card.
+   ===================================================================== */
+
+:root {
+    /* Learning-area colours — taken from the school's printed ACE card. */
+    --ace-maths: #F7C142;        --ace-maths-ink: #1c1c1c;
+    --ace-english: #EE3124;      --ace-english-ink: #1c1c1c;
+    --ace-social: #4F5B2E;       --ace-social-ink: #ffffff;
+    --ace-word: #5B4678;         --ace-word-ink: #ffffff;
+    --ace-science: #5C85B9;      --ace-science-ink: #1c1c1c;
+    --ace-animal: #B0A4C8;       --ace-animal-ink: #1c1c1c;
+    --ace-bible: #8F6521;        --ace-bible-ink: #ffffff;
+    --ace-score: #E8281E;        /* red used for PACE scores on the card */
+    --ace-tagline: #5B8FD0;
+}
+
+.ace-area-maths { --ace-bg: var(--ace-maths); --ace-ink: var(--ace-maths-ink); }
+.ace-area-english { --ace-bg: var(--ace-english); --ace-ink: var(--ace-english-ink); }
+.ace-area-social-studies { --ace-bg: var(--ace-social); --ace-ink: var(--ace-social-ink); }
+.ace-area-word-building { --ace-bg: var(--ace-word); --ace-ink: var(--ace-word-ink); }
+.ace-area-science { --ace-bg: var(--ace-science); --ace-ink: var(--ace-science-ink); }
+.ace-area-animal-science,
+.ace-area-literature-and-creative-writing { --ace-bg: var(--ace-animal); --ace-ink: var(--ace-animal-ink); }
+.ace-area-bible-reading { --ace-bg: var(--ace-bible); --ace-ink: var(--ace-bible-ink); }
+
+/* --- Grade / student tables --- */
+
+.ace-grade-cell { display: flex; align-items: center; gap: 10px; }
+.ace-grade-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 30px;
+    height: 30px;
+    padding: 0 8px;
+    border-radius: 9px;
+    background: var(--modern-green-soft, var(--teal-tint));
+    color: var(--modern-green, var(--teal-dark));
+    font-size: 12px;
+    font-weight: 700;
+}
+.ace-empty-row td { text-align: center; color: var(--text-muted); padding: 28px 15px !important; }
+
+/* --- PACE marks entry --- */
+
+.ace-entry-card {
+    background: var(--modern-card, var(--surface));
+    border: 1px solid var(--modern-line, var(--border));
+    border-radius: 20px;
+    box-shadow: var(--modern-shadow, none);
+    padding: 22px 24px 24px;
+}
+.ace-entry-head { margin-bottom: 18px; }
+.ace-entry-head h3 { margin: 0 0 4px; font-size: 16px; font-weight: 650; color: var(--text-primary); }
+.ace-area-block {
+    border: 1px solid var(--modern-line, var(--border));
+    border-radius: 14px;
+    padding: 14px 16px 16px;
+    margin-bottom: 12px;
+}
+.ace-area-title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 0 0 12px;
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--text-primary);
+}
+.ace-area-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 4px;
+    background: var(--ace-bg);
+    flex-shrink: 0;
+}
+.ace-area-count { margin-left: auto; font-size: 11px; font-weight: 500; color: var(--text-muted); }
+.ace-pace-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 10px;
+}
+.ace-pace-field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+.ace-pace-field .form-input { text-align: center; padding-left: 8px; padding-right: 8px; }
+.ace-notes-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 6px; }
+.ace-notes-grid textarea.form-input { min-height: 84px; resize: vertical; font-family: inherit; line-height: 1.45; }
+.ace-entry-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 18px; }
+
+/* --- Reports table: student names --- */
+.ace-student-names { max-width: 360px; color: var(--text-secondary); }
+
+/* --- Home page: ACE distribution tiles --- */
+.ace-dist-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 8px 0; }
+.ace-dist-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid var(--modern-line, var(--border));
+    border-radius: 10px;
+    text-decoration: none;
+    color: inherit;
+    transition: background .15s ease, border-color .15s ease;
+}
+.ace-dist-item:hover { background: var(--modern-green-soft, var(--teal-tint)); }
+.ace-dist-item span { font-size: 13px; font-weight: 700; }
+.ace-dist-item strong { color: var(--modern-green, var(--teal-dark)); }
+
+/* --- ACE report card (matches the school's printed template) ---
+   Paper is always white with black ink, in light and dark mode alike. */
+
+.ace-report-page {
+    width: min(820px, 100%);
+    aspect-ratio: 210 / 297;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+    color: #111111;
+    border: 1px solid var(--border);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+    padding: 36px 44px 28px;
+    font-family: Arial, Helvetica, sans-serif;
+}
+.ace-hand { font-family: "Lobster Two", "Segoe Script", "Brush Script MT", cursive; font-weight: 700; }
+
+.ace-card-head {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr) 112px;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+/* The logo keeps its own proportions by sizing from its natural width/height
+   and capping both at the box, rather than forcing a square and relying on
+   object-fit (the PDF renderer, html2canvas, ignores object-fit and was
+   stretching wide logos vertically in the downloaded report). */
+.ace-card-logo { width: auto; height: auto; max-width: 104px; max-height: 104px; display: block; }
+.ace-card-head-text { text-align: center; }
+.ace-card-head-text .ace-card-school { margin: 0 0 8px; font-size: 25px; font-weight: 700; line-height: 1.15; }
+.ace-card-head-text p { margin: 4px 0; font-size: 14px; font-weight: 700; line-height: 1.3; }
+
+.ace-card-title { text-align: center; margin: 14px 0 26px; }
+.ace-card-title span {
+    display: inline-block;
+    background: #000000;
+    color: #ffffff;
+    padding: 2px 6px 3px;
+    font-size: 21px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.ace-card-meta { font-size: 19px; margin-bottom: 22px; }
+.ace-card-meta-row { display: grid; gap: 14px; margin: 4px 0; align-items: end; }
+.ace-card-meta-row.name-row { grid-template-columns: minmax(0, 1fr) auto; }
+.ace-card-meta-row.term-row { grid-template-columns: 1.15fr .85fr .6fr; }
+.ace-card-field { display: flex; align-items: flex-end; gap: 6px; min-width: 0; }
+.ace-card-field > .label { white-space: nowrap; }
+.ace-card-field > .fill {
+    flex: 1;
+    min-width: 0;
+    border-bottom: 1.5px solid #111111;
+    text-align: center;
+    padding: 0 4px;
+    line-height: 1.25;
+    min-height: 24px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ace-card-field.age > .fill { min-width: 62px; flex: none; text-align: left; }
+
+/* Separate (not collapsed) borders: html2canvas drops collapsed table borders
+   at the edges when it renders the PDF, so the table draws its own outer frame
+   and each cell draws only its inner right and bottom edge. */
+.ace-card-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; border: 1px solid #111111; pointer-events: none; }
+/* The app styles every <table> globally (gradient sticky headings, dark-mode
+   colours, hover tint). The card is printed paper, so reset all of that here;
+   the .ace-report-page prefix outranks the global and dark-mode rules. */
+.ace-report-page .ace-card-table th,
+.ace-report-page .ace-card-table td {
+    position: static;
+    height: 28px;
+    padding: 1px 2px;
+    margin: 0;
+    border: 0;
+    border-right: 1px solid #111111;
+    border-bottom: 1px solid #111111;
+    border-radius: 0;
+    box-shadow: none;
+    background: #ffffff;
+    background-image: none;
+    color: #111111;
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+    text-align: center;
+    vertical-align: middle;
+    white-space: normal;
+    overflow: hidden;
+}
+.ace-report-page .ace-card-table tr > :last-child { border-right: 0; }
+.ace-report-page .ace-card-table tbody tr:last-child > * { border-bottom: 0; }
+.ace-report-page .ace-card-table thead th { height: 34px; font-size: 14.5px; font-weight: 700; }
+.ace-report-page .ace-card-table td.ace-label {
+    text-align: left;
+    padding: 1px 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    background: var(--ace-bg);
+    color: #000000;   /* uniform black subject labels on every colour band */
+}
+.ace-report-page .ace-card-table td.ace-label-blank { background: #ffffff; }
+.ace-report-page .ace-card-table td.ace-pace-no { font-weight: 700; }
+.ace-report-page .ace-card-table td.ace-pace-score { font-weight: 700; color: var(--ace-score); }
+
+.ace-card-notes { margin-top: 34px; }
+.ace-card-note { margin: 0; font-size: 17px; line-height: 1.5; overflow-wrap: anywhere; }
+.ace-card-note-text { text-decoration: underline; text-underline-offset: 3px; }
+.ace-card-note-text.is-empty { display: inline-block; width: 62%; min-height: 1em; text-decoration: none; border-bottom: 1.5px solid #111111; vertical-align: baseline; }
+.ace-card-sign {
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    gap: 4px;
+    width: 46%;
+    margin: 12px 0 20px auto;   /* right-aligned on the card */
+    font-size: 15px;
+    font-weight: 700;
+}
+.ace-card-sign-line { position: relative; flex: 1; height: 64px; border-bottom: 1.5px solid #111111; }
+/* The image is trimmed of its blank margin by the server, so anchoring it to
+   the bottom edge makes the ink rest directly on the signing line. */
+.ace-card-sign-line img { position: absolute; left: 50%; transform: translateX(-50%); bottom: 0; height: auto; width: auto; max-height: 62px; max-width: 100%; display: block; }
+
+.ace-card-foot { margin-top: auto; text-align: center; padding-top: 12px; }
+.ace-card-next { margin: 0 0 6px; font-size: 14px; }
+.ace-card-next b { font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.ace-card-next span + span { margin-left: 14px; }
+.ace-card-tagline {
+    margin: 0;
+    font-family: Georgia, "Times New Roman", serif;
+    font-style: italic;
+    font-weight: 700;
+    font-size: 17px;
+    color: var(--ace-tagline);
+}
+
+/* Hidden pages the preview/PDF pull from. */
+#aceReportSource { display: none; }
+/* Capture copy used only while the PDF is generated. It is parked far off
+   screen so it never flashes over the preview (this was the "duplicated
+   report for a second" glitch); ace-actions.js moves it back to 0,0 inside
+   html2canvas's private clone, so the capture itself is unaffected. */
+#acePrintContainer {
+    position: absolute;
+    top: 0;
+    left: -12000px;
+    z-index: -1;
+    width: 820px;
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+    pointer-events: none;
+}
+#acePrintContainer .ace-report-page { box-shadow: none; border: none; width: 100%; }
+
+@media (max-width: 760px) {
+    .ace-notes-grid { grid-template-columns: 1fr; }
+    .ace-dist-grid { grid-template-columns: repeat(2, 1fr); }
+    .ace-report-page { padding: 22px 16px 18px; }
+    .ace-card-head { grid-template-columns: 64px minmax(0, 1fr) 0; }
+    .ace-card-logo { max-width: 60px; max-height: 60px; }
+    .ace-card-head-text .ace-card-school { font-size: 17px; }
+    .ace-card-head-text p { font-size: 10px; }
+    .ace-card-title span { font-size: 14px; }
+    .ace-card-meta { font-size: 13px; }
+    .ace-report-page .ace-card-table th, .ace-report-page .ace-card-table td { font-size: 8px; height: 22px; }
+    .ace-report-page .ace-card-table thead th { font-size: 9px; }
+    .ace-card-note { font-size: 12px; }
+    .ace-card-next { font-size: 10px; }
+    .ace-card-tagline { font-size: 12px; }
+}
+
+/* Report preview in dark mode (shared by Primary reports and ACE): the active
+   student row and tab were hard-coded light, which made their text unreadable. */
+[data-theme="dark"] .report-student-item.active,
+[data-theme="dark"] .report-student-item:hover { background: #26322d; }
+[data-theme="dark"] .report-preview-tab.active { color: var(--teal); }
+[data-theme="dark"] .report-document-area { background: #14181A; }
+
+/* =========================================================================
+   MOBILE REPORT PREVIEW: on phones show only the All-in-One view plus a
+   Download button. The student list and Individual/All-in-One tabs are
+   hidden, and each A4 report page is scaled down (see fitReportPages in
+   reports-actions.js / ace-actions.js) so the whole page fits the screen.
+   ========================================================================= */
+.report-download-label { display: none; }
+
+@media (max-width: 760px) {
+    .report-preview-shell { height: 100vh; height: 100dvh; }
+    .report-preview-header { padding: 12px 14px; align-items: center; }
+    .report-preview-title { font-size: 16px; margin: 0 0 2px; }
+    .report-preview-subtitle { font-size: 12px; }
+
+    .report-preview-tabs,
+    .report-student-panel { display: none !important; }
+    .report-preview-body,
+    .report-preview-body.no-sidebar { grid-template-columns: minmax(0, 1fr); }
+
+    .report-document-area { padding: 0 8px 28px; -webkit-overflow-scrolling: touch; }
+    .report-document-actions {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        justify-content: space-between;
+        margin: 0 -8px 10px;
+        padding: 10px 12px;
+        background: #FAFCFB;
+        border-bottom: 1px solid var(--border);
+    }
+    .report-document-actions .icon-btn {
+        width: auto;
+        height: 38px;
+        padding: 0 16px;
+        gap: 6px;
+        background: var(--teal);
+        border-color: var(--teal);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+    }
+    .report-document-actions .report-download-label { display: inline; }
+
+    .report-document { gap: 12px; align-items: center; }
+    /* Keep every report page at its real A4 design width and shrink it with
+       zoom so nothing is cut off or squashed. --report-fit-scale is set from
+       the screen width by JS. */
+    .report-document > .report-card-page,
+    .report-document > .ace-report-page {
+        width: 820px !important;
+        max-width: none !important;
+        flex: 0 0 auto;
+        zoom: var(--report-fit-scale, 0.45);
+    }
+}
+
+[data-theme="dark"] .report-document-actions { background: #14181A; }
+
+/* Off-screen copy used only while a Primary report PDF is generated. */
+#reportPrintContainer.report-print-offscreen { left: -12000px; z-index: -1; }

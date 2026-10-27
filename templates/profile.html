@@ -61,6 +61,7 @@
                     </div>
                 </div>
 
+                {% if member.role != 'admin' %}
                 <div class="photo-upload-row">
                     <div class="photo-upload-preview" id="profileSignaturePreview">
                         {% if member.signature_url %}
@@ -75,7 +76,7 @@
                         <p class="form-hint">A photo of your signature — shown on report cards instead of a blank signing line.</p>
                     </div>
                 </div>
-
+                {% endif %}
 
                 <div class="form-group">
                     <label class="form-label" for="profile-edit-name">Full name</label>

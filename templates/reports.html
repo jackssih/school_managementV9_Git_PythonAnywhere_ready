@@ -238,7 +238,7 @@
                 <section class="report-document-area">
                     <div class="report-document-actions">
                         <span id="reportPageCount">1 Page</span>
-                        <button type="button" class="icon-btn" id="reportDownloadBtn" title="Download"><i class="ti ti-download"></i></button>
+                        <button type="button" class="icon-btn" id="reportDownloadBtn" title="Download"><i class="ti ti-download"></i><span class="report-download-label">Download</span></button>
                     </div>
                     <div class="report-document" id="reportDocument"></div>
                 </section>
@@ -288,7 +288,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <!-- Load jsPDF for PDF generation -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="{{ url_for('static', filename='js/reports-actions.js') }}?v=8.3"></script>
+    <script src="{{ url_for('static', filename='js/reports-actions.js') }}?v=8.4"></script>
     {% if active_tab == 'marksheets' and selected_class %}
     <script src="{{ url_for('static', filename='js/marksheets-actions.js') }}?v=8.3"></script>
     {% endif %}

@@ -1,7 +1,7 @@
 from datetime import date, datetime
 
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, LargeBinary, String, Table, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Table, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -116,6 +116,7 @@ class AcademicClass(db.Model, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
     level: Mapped[str] = mapped_column(String(60), default="", nullable=False)
+    curriculum: Mapped[str] = mapped_column(String(30), default="Standard", nullable=False)
     stream: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     class_teacher_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id"))
 
@@ -235,6 +236,33 @@ class AssessmentResult(db.Model, TimestampMixin):
     remark: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
     assessment: Mapped[Assessment] = relationship()
+    student: Mapped[Student] = relationship()
+
+
+class AcePaceResult(db.Model, TimestampMixin):
+    """A completed ACE PACE score for one pupil and learning area."""
+    __tablename__ = "ace_pace_results"
+    __table_args__ = (UniqueConstraint("student_id", "learning_area", "pace_number", name="uq_ace_student_area_pace"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id"), nullable=False)
+    learning_area: Mapped[str] = mapped_column(String(80), nullable=False)
+    pace_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    # PACE scores can be recorded to a fraction, e.g. 90.5.
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    student: Mapped[Student] = relationship()
+
+
+class AceReportNote(db.Model, TimestampMixin):
+    """Supervisor and principal comments on an ACE end-of-term report."""
+    __tablename__ = "ace_report_notes"
+    __table_args__ = (UniqueConstraint("student_id", "term_name", name="uq_ace_student_term_note"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id"), nullable=False)
+    term_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    supervisor_report: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    principal_report: Mapped[str] = mapped_column(Text, default="", nullable=False)
     student: Mapped[Student] = relationship()
 
 

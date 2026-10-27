@@ -29,8 +29,9 @@ document.addEventListener("DOMContentLoaded", () => {
         document.querySelectorAll(".modal-overlay.open").forEach((overlay) => closeModal(overlay.id));
     });
 
-    // Intercept submit on both forms and post via fetch so we never leave the page
-    document.querySelectorAll(".modal-form").forEach((form) => {
+    // Intercept submit on modal forms and post via fetch so we never leave the page.
+    // Forms marked data-native-submit post normally (they answer with a redirect, not JSON).
+    document.querySelectorAll(".modal-form:not([data-native-submit])").forEach((form) => {
         form.addEventListener("submit", async (e) => {
             e.preventDefault();
 

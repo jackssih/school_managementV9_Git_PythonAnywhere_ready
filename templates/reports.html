@@ -116,24 +116,13 @@
     <div class="profiles-table-wrap">
         <table class="profiles-table">
             <thead>
-                {% if active_tab == 'published' %}<tr><th>Class</th><th>Students</th><th>Type</th><th>Date publish</th><th>Generated</th><th class="col-action">Actions</th></tr>
-                {% else %}<tr><th>Class</th><th>Students</th><th>Type</th><th>Date and time created</th><th>Status</th><th>Generated</th><th class="col-action">Actions</th></tr>{% endif %}
+                {% if active_tab == 'published' %}<tr><th>Class</th><th>Type</th><th>Date publish</th><th>Generated</th><th class="col-action">Actions</th></tr>
+                {% else %}<tr><th>Class</th><th>Type</th><th>Date and time created</th><th>Status</th><th>Generated</th><th class="col-action">Actions</th></tr>{% endif %}
             </thead>
             <tbody>
             {% for r in records %}
                 <tr>
                     <td class="name-cell"><a class="academic-class-link" href="{{ url_for('reports', tab=active_tab, class_id=selected_class.id) }}">{{ r.class_name }}</a></td>
-                    <td>
-                        {% if r.students %}
-                            <div class="report-student-names">
-                                {% for student in r.students %}
-                                    <span>{{ student.name }}</span>{% if not loop.last %}, {% endif %}
-                                {% endfor %}
-                            </div>
-                        {% else %}
-                            <span class="muted-text">—</span>
-                        {% endif %}
-                    </td>
                     <td>{{ r.report_type }}</td><td>{{ r.published_at if active_tab == 'published' else r.created_at }}</td>
                     {% if active_tab != 'published' %}<td><span class="status-badge {% if r.status == 'Generated' %}status-active{% else %}status-pending{% endif %}">{{ r.status }}</span></td>{% endif %}
                     <td><button type="button" class="link-btn" data-report-action="preview" data-record="{{ r|tojson|forceescape }}">{{ r.generated_count }}</button></td>

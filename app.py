@@ -5336,7 +5336,9 @@ def ace():
         "ace_grade_records": ace_grade_records,
         "students": [ace_student_context(student, term_name, areas) for student in students],
         "selected_student": ace_student_context(selected_student, term_name, areas) if selected_student else None,
-        "available_students": Student.query.filter(~Student.current_class_name.like("ACE Grade %")).order_by(Student.name).all(),
+        # A student can be in Primary OR ACE, never both: only offer students
+        # who are not enrolled in any class yet.
+        "available_students": Student.query.filter(Student.current_class_name == "").order_by(Student.name).all(),
         "supervisors": Staff.query.filter_by(role="supervisor").order_by(Staff.name).all(),
         "ace_grade": grade, "paces": list(ACE_PACE_RANGES[grade]), "ace_areas": areas,
         "term_roman": {1: "I", 2: "II", 3: "III"}.get(int(re.search(r"\d+", term_name).group()) if re.search(r"\d+", term_name) else 0, term_name),
@@ -5391,6 +5393,9 @@ def ace_enroll():
         abort(404)
     if supervisor and supervisor.role != "supervisor":
         abort(400)
+    if student.current_class_name:
+        flash(f"{student.name} is already enrolled in {student.current_class_name}. A student cannot be in both Primary and ACE.", "error")
+        return redirect(url_for("ace", tab="grades", grade_id=academic_class.id))
     if supervisor:
         academic_class.class_teacher = supervisor
     student.current_class_name = academic_class.name
@@ -5414,9 +5419,10 @@ def ace_bulk_enroll():
         return redirect(url_for("ace", tab="grades"))
     if supervisor and supervisor.role != "supervisor":
         abort(400)
-    students = Student.query.filter(Student.id.in_(student_ids)).all()
+    # Only students who are not enrolled anywhere can join an ACE grade.
+    students = Student.query.filter(Student.id.in_(student_ids), Student.current_class_name == "").all()
     if not students:
-        flash("No valid students were selected.", "error")
+        flash("No valid students were selected. Students already enrolled in a class cannot be enrolled in ACE.", "error")
         return redirect(url_for("ace", tab="grades", grade_id=academic_class.id))
     if supervisor:
         academic_class.class_teacher = supervisor

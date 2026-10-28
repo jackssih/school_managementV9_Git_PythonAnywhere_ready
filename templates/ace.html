@@ -309,7 +309,7 @@
             <label class="form-label" for="ace-enroll-student">Student</label>
             <select class="form-input" id="ace-enroll-student" name="student_id" required>
               <option value="">Choose student</option>
-              {% for student in available_students %}<option value="{{ student.id }}">{{ student.name }}{% if student.current_class_name %} — currently {{ student.current_class_name }}{% endif %}</option>{% endfor %}
+              {% for student in available_students %}<option value="{{ student.id }}">{{ student.name }}</option>{% endfor %}
             </select>
           </div>
           <div class="form-group">
@@ -358,7 +358,7 @@
                   </span>
                 </label>
               {% else %}
-                <p class="form-subheading">No other students are available to enrol.</p>
+                <p class="form-subheading">No unenrolled students are available. Students already in a Primary class cannot join ACE.</p>
               {% endfor %}
             </div>
             <p class="form-hint" id="aceBulkCount">0 students selected</p>

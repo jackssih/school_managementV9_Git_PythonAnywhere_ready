@@ -11,9 +11,10 @@ from fractions import Fraction
 from functools import wraps
 from urllib.parse import urlencode
 
-from sqlalchemy import inspect, text
+from sqlalchemy import Index, event, inspect, text
+from sqlalchemy.orm import Session, joinedload, selectinload
 
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, abort, Response, session, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, abort, Response, session, send_file, g, has_request_context
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -70,6 +71,49 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db.init_app(app)
+
+# --- Per-request cache (performance) ---
+#
+# Many helpers below (all_students, all_subjects, get_class_students, ...) are
+# called again and again while ONE page is being built — sometimes once per
+# student or once per assessment. Each call used to go back to the database,
+# which is what made Reports and Grades slow once a school had real data.
+# @request_cached remembers a helper's answer for the rest of the current
+# request only. Any database flush/commit/rollback wipes the memory, so a page
+# that saves something and then reads it back still sees the new data.
+# Nothing is shared between requests or users.
+def _request_cache():
+    if not has_request_context():
+        return None
+    cache = g.get("_perf_cache")
+    if cache is None:
+        cache = g._perf_cache = {}
+    return cache
+
+
+def request_cached(fn):
+    @wraps(fn)
+    def wrapper(*args):
+        cache = _request_cache()
+        if cache is None:
+            return fn(*args)
+        key = (fn.__name__, args)
+        if key not in cache:
+            cache[key] = fn(*args)
+        value = cache[key]
+        # Hand back a copy of lists so a caller that sorts its result in place
+        # cannot disturb the cached copy other code is about to read.
+        return list(value) if isinstance(value, list) else value
+    return wrapper
+
+
+def _clear_request_cache(*_args, **_kwargs):
+    if has_request_context():
+        g.pop("_perf_cache", None)
+
+
+for _hook in ("after_flush", "after_commit", "after_rollback"):
+    event.listen(Session, _hook, _clear_request_cache)
 
 @app.template_global()
 def pagination_url(**overrides):
@@ -643,6 +687,11 @@ def get_school():
     """The single School row — settings, report footers, and printed
     timetables all read school details from here (Settings > School profile
     is what edits it)."""
+    return _first_school()
+
+
+@request_cached
+def _first_school():
     return School.query.first()
 
 
@@ -1283,9 +1332,15 @@ def calendar_event_payload():
     ]
 
 
+@request_cached
 def all_students():
     """Every student, in the same dict shape the old STUDENTS placeholder used."""
     return [student_record(s) for s in Student.query.all()]
+
+
+@request_cached
+def _students_by_id():
+    return {s["id"]: s for s in all_students()}
 
 
 def academic_class_record(academic_class):
@@ -1297,9 +1352,11 @@ def academic_class_record(academic_class):
     }
 
 
+@request_cached
 def all_academic_classes():
     """Every class, in the same dict shape the old ACADEMIC_CLASSES placeholder used."""
-    return [academic_class_record(c) for c in AcademicClass.query.order_by(AcademicClass.name).all()]
+    rows = AcademicClass.query.options(joinedload(AcademicClass.class_teacher)).order_by(AcademicClass.name).all()
+    return [academic_class_record(c) for c in rows]
 
 
 def subject_record_dict(subject):
@@ -1313,9 +1370,24 @@ def subject_record_dict(subject):
     }
 
 
+@request_cached
 def all_subjects():
     """Every subject, in the same dict shape the old SUBJECTS placeholder used."""
-    return [subject_record_dict(s) for s in Subject.query.all()]
+    rows = Subject.query.options(joinedload(Subject.academic_class), joinedload(Subject.teacher)).all()
+    return [subject_record_dict(s) for s in rows]
+
+
+@request_cached
+def _subjects_by_class_name():
+    grouped = {}
+    for subject in all_subjects():
+        grouped.setdefault(subject["class_name"], []).append(subject)
+    return grouped
+
+
+@request_cached
+def _subjects_by_id():
+    return {s["id"]: s for s in all_subjects()}
 
 
 def enrollment_record_dict(enrollment):
@@ -1330,9 +1402,16 @@ def enrollment_record_dict(enrollment):
     }
 
 
+@request_cached
 def all_enrollments():
     """Every enrollment record, in the same dict shape the old ENROLLMENTS placeholder used."""
-    return [enrollment_record_dict(e) for e in Enrollment.query.order_by(Enrollment.id).all()]
+    rows = (
+        Enrollment.query
+        .options(joinedload(Enrollment.academic_class), selectinload(Enrollment.students))
+        .order_by(Enrollment.id)
+        .all()
+    )
+    return [enrollment_record_dict(e) for e in rows]
 
 
 def get_class_filter_options():
@@ -1345,8 +1424,17 @@ def get_class_filter_options():
     return [c["name"] for c in all_academic_classes()] + ["Not enrolled"]
 
 
+@request_cached
+def _students_by_class_name():
+    grouped = {}
+    for student in all_students():
+        grouped.setdefault(student["enrolled_class"], []).append(student)
+    return grouped
+
+
 def get_class_students(class_name):
-    return [student_record(s) for s in Student.query.filter_by(current_class_name=class_name).all()]
+    # Same rows, same order as filtering the Student table by class name.
+    return list(_students_by_class_name().get(class_name, []))
 
 
 def class_level(class_name):
@@ -1368,14 +1456,13 @@ def find_subject_for_assessment(assessment):
     back to matching on name + class for any older records that predate the
     subject_id link.
     """
-    subjects = all_subjects()
     subject_id = assessment.get("subject_id")
     if subject_id is not None:
-        subject = next((s for s in subjects if s["id"] == subject_id), None)
+        subject = _subjects_by_id().get(subject_id)
         if subject:
             return subject
     return next(
-        (s for s in subjects if s["name"] == assessment.get("subject") and s["class_name"] == assessment.get("class_name")),
+        (s for s in _subjects_by_class_name().get(assessment.get("class_name"), []) if s["name"] == assessment.get("subject")),
         None,
     )
 
@@ -1427,12 +1514,8 @@ def effective_aggregate(mark, stored=""):
 
 
 def get_student_names(student_ids):
-    names = []
-    for student_id in student_ids:
-        student = Student.query.get(student_id)
-        if student:
-            names.append(student.name)
-    return names
+    by_id = _students_by_id()
+    return [by_id[student_id]["name"] for student_id in student_ids if student_id in by_id]
 
 
 def teacher_names():
@@ -1455,10 +1538,10 @@ def students_payload(students):
 
 def academic_class_records():
     records = []
-    subjects = all_subjects()
+    subjects_by_class = _subjects_by_class_name()
     for class_record in all_academic_classes():
         class_students = get_class_students(class_record["name"])
-        class_subjects = [s for s in subjects if s["class_name"] == class_record["name"]]
+        class_subjects = subjects_by_class.get(class_record["name"], [])
         records.append(
             {
                 **class_record,
@@ -1518,8 +1601,7 @@ def enrollment_class_records():
     """
     records = []
     for class_record in all_academic_classes():
-        academic_class = AcademicClass.query.get(class_record["id"])
-        if academic_class and academic_class.curriculum == "ACE":
+        if class_record.get("curriculum") == "ACE":
             continue
         students = get_class_students(class_record["name"])
         records.append({
@@ -1718,25 +1800,29 @@ def grade_class_records(tab):
     Assessments and comments both use the class as their first-level
     navigation, matching the Subjects and Enrollment structure in Academics.
     """
-    assessment_list = assessment_records() if tab == "assessments" else []
-    comment_list = comment_records() if tab == "comments" else []
+    # Only counts are shown on this landing page, so count straight from the
+    # lightweight lists instead of building every student's marks per assessment.
+    assessments_per_class = {}
+    if tab == "assessments":
+        for a in all_assessments():
+            assessments_per_class[a["class_name"]] = assessments_per_class.get(a["class_name"], 0) + 1
+    comments_per_class = {}
+    if tab == "comments":
+        for c in all_report_comments():
+            comments_per_class[c["class_name"]] = comments_per_class.get(c["class_name"], 0) + 1
+    subjects_by_class = _subjects_by_class_name()
     records = []
     for class_record in all_academic_classes():
-        academic_class = AcademicClass.query.get(class_record["id"])
-        if academic_class and academic_class.curriculum == "ACE":
+        if class_record.get("curriculum") == "ACE":
             continue
         class_name = class_record["name"]
-        students = get_class_students(class_name)
-        subjects = [s for s in all_subjects() if s["class_name"] == class_name]
-        assessments = [a for a in assessment_list if a["class_name"] == class_name]
-        comments = [c for c in comment_list if c["class_name"] == class_name]
         records.append({
             **class_record,
             "level": class_level(class_name),
-            "students_count": len(students),
-            "subjects_count": len(subjects),
-            "assessments_count": len(assessments),
-            "comments_count": len(comments),
+            "students_count": len(get_class_students(class_name)),
+            "subjects_count": len(subjects_by_class.get(class_name, [])),
+            "assessments_count": assessments_per_class.get(class_name, 0),
+            "comments_count": comments_per_class.get(class_name, 0),
         })
     return records
 
@@ -1767,24 +1853,45 @@ def assessment_record_dict(assessment):
     }
 
 
+@request_cached
 def all_assessments():
     """Every assessment, in the same dict shape the old GRADING_ASSESSMENTS placeholder used."""
-    return [assessment_record_dict(a) for a in Assessment.query.order_by(Assessment.id).all()]
+    rows = (
+        Assessment.query
+        .options(joinedload(Assessment.subject).joinedload(Subject.academic_class))
+        .order_by(Assessment.id)
+        .all()
+    )
+    return [assessment_record_dict(a) for a in rows]
+
+
+@request_cached
+def _results_by_assessment():
+    """{assessment_id: {student_id: {mark, aggregate, grade, remark}}} for
+    every recorded result, loaded in ONE query (plain columns, no ORM objects)."""
+    index = {}
+    rows = db.session.query(
+        AssessmentResult.assessment_id, AssessmentResult.student_id, AssessmentResult.mark,
+        AssessmentResult.aggregate, AssessmentResult.grade, AssessmentResult.remark,
+    ).all()
+    for assessment_id, student_id, mark, aggregate, grade, remark in rows:
+        index.setdefault(assessment_id, {})[student_id] = {
+            "mark": mark, "aggregate": aggregate, "grade": grade, "remark": remark,
+        }
+    return index
 
 
 def assessment_result_map(assessment_id):
     """{student_id: {mark, aggregate, grade, remark}} for one assessment — the
     same shape ASSESSMENT_RESULTS.get(assessment_id) used to return."""
-    results = AssessmentResult.query.filter_by(assessment_id=assessment_id).all()
-    return {
-        r.student_id: {"mark": r.mark, "aggregate": r.aggregate, "grade": r.grade, "remark": r.remark}
-        for r in results
-    }
+    return dict(_results_by_assessment().get(assessment_id, {}))
 
 
-def assessment_records():
+def assessment_records(class_name=None):
     records = []
     for assessment in all_assessments():
+        if class_name is not None and assessment["class_name"] != class_name:
+            continue
         class_students = get_class_students(assessment["class_name"])
         result_map = assessment_result_map(assessment["id"])
         result_mode = "letter" if is_other_subject_assessment(assessment) else "marks"
@@ -1834,9 +1941,11 @@ def report_comment_record_dict(comment):
     }
 
 
+@request_cached
 def all_report_comments():
     """Every report comment, in the same dict shape REPORT_COMMENTS used."""
-    return [report_comment_record_dict(c) for c in ReportComment.query.order_by(ReportComment.id).all()]
+    rows = ReportComment.query.options(joinedload(ReportComment.student)).order_by(ReportComment.id).all()
+    return [report_comment_record_dict(c) for c in rows]
 
 
 def report_batch_record_dict(batch):
@@ -1855,7 +1964,13 @@ def report_batch_record_dict(batch):
 def all_report_batches():
     """Every report batch (Reports > Report Cards tab), in the same dict
     shape REPORT_BATCHES used."""
-    return [report_batch_record_dict(b) for b in ReportBatch.query.order_by(ReportBatch.id).all()]
+    rows = (
+        ReportBatch.query
+        .options(joinedload(ReportBatch.academic_class), selectinload(ReportBatch.students))
+        .order_by(ReportBatch.id)
+        .all()
+    )
+    return [report_batch_record_dict(b) for b in rows]
 
 
 def published_report_record_dict(published):
@@ -1878,13 +1993,20 @@ def published_report_record_dict(published):
 def all_published_reports():
     """Every published report (Reports > Published tab), in the same dict
     shape PUBLISHED_REPORTS used."""
-    return [published_report_record_dict(p) for p in PublishedReport.query.order_by(PublishedReport.id).all()]
+    rows = (
+        PublishedReport.query
+        .options(joinedload(PublishedReport.academic_class), selectinload(PublishedReport.students))
+        .order_by(PublishedReport.id)
+        .all()
+    )
+    return [published_report_record_dict(p) for p in rows]
 
 
 def comment_records():
     records = []
+    students_by_id = _students_by_id()
     for comment in all_report_comments():
-        student = next((s for s in all_students() if s["id"] == comment["student_id"]), None)
+        student = students_by_id.get(comment["student_id"])
         records.append(
             {
                 **comment,
@@ -2095,25 +2217,38 @@ def report_stage_for_report_type(report_type):
     return "End of term"
 
 
+@request_cached
+def _comments_index():
+    """{student_id: [comment, ...]} in id order, so the last matching comment
+    still wins exactly as it did when the full list was scanned each time."""
+    index = {}
+    for comment in all_report_comments():
+        index.setdefault(comment["student_id"], []).append(comment)
+    return index
+
+
 def report_comment_map(student_id, report_type=None):
     stage = report_stage_for_report_type(report_type)
     comments = {"Class teacher": "", "Head teacher": ""}
-    for comment in all_report_comments():
-        if (
-            comment["student_id"] == student_id
-            and comment["comment_type"] in comments
-            and comment.get("report_stage", "End of term") == stage
-        ):
+    for comment in _comments_index().get(student_id, []):
+        if comment["comment_type"] in comments and comment.get("report_stage", "End of term") == stage:
             comments[comment["comment_type"]] = comment["comment"]
     return comments
 
 
+@request_cached
+def _assessments_by_class_name():
+    grouped = {}
+    for assessment in all_assessments():
+        grouped.setdefault(assessment["class_name"], []).append(assessment)
+    return grouped
+
+
 def report_assessment_rows(student):
     rows = []
-    for assessment in all_assessments():
-        if assessment["class_name"] != student.get("enrolled_class"):
-            continue
-        result = assessment_result_map(assessment["id"]).get(student["id"], {})
+    results = _results_by_assessment()
+    for assessment in _assessments_by_class_name().get(student.get("enrolled_class"), []):
+        result = results.get(assessment["id"], {}).get(student["id"], {})
         rows.append(
             {
                 "subject": assessment["subject"],
@@ -2129,11 +2264,17 @@ def report_assessment_rows(student):
     return rows
 
 
-def student_enrollment_date(student_id, fallback=""):
+@request_cached
+def _first_enrollment_date_by_student():
+    first = {}
     for enrollment in all_enrollments():
-        if student_id in enrollment.get("student_ids", []):
-            return enrollment["date"]
-    return fallback
+        for student_id in enrollment.get("student_ids", []):
+            first.setdefault(student_id, enrollment["date"])
+    return first
+
+
+def student_enrollment_date(student_id, fallback=""):
+    return _first_enrollment_date_by_student().get(student_id, fallback)
 
 
 def main_subjects_for_class(class_name):
@@ -2141,14 +2282,14 @@ def main_subjects_for_class(class_name):
     Non-compulsory subjects (ICT, French, Music, etc.) are graded via letter grade
     in the 'Other subjects' section instead. Toggle a subject's compulsory flag in
     Academics > Subjects to move it between the two."""
-    return [s["name"] for s in all_subjects() if s["class_name"] == class_name and s.get("is_compulsory")]
+    return [s["name"] for s in _subjects_by_class_name().get(class_name, []) if s.get("is_compulsory")]
 
 def marksheet_subjects_for_class(class_name):
     """Subjects shown on the class-analysis marksheet, in the same marks/aggregate
     layout as the supplied P.5.B example. Compulsory subjects are the numeric
     marks subjects; if a class has not flagged any subjects as compulsory yet,
     fall back to all configured subjects so the sheet is never empty."""
-    subjects = [s for s in all_subjects() if s["class_name"] == class_name]
+    subjects = _subjects_by_class_name().get(class_name, [])
     compulsory = [s for s in subjects if s.get("is_compulsory")]
     return compulsory or subjects
 
@@ -2231,13 +2372,14 @@ def marksheet_data_for_class(class_name, sheet_type):
     for assessment in assessments:
         latest_by_subject[assessment.subject_id] = assessment
 
+    all_results = _results_by_assessment()
     result_maps = {
         assessment.id: {
-            r.student_id: {
-                "mark": r.mark,
-                "aggregate": effective_aggregate(r.mark, r.aggregate),
+            student_id: {
+                "mark": r["mark"],
+                "aggregate": effective_aggregate(r["mark"], r["aggregate"]),
             }
-            for r in AssessmentResult.query.filter_by(assessment_id=assessment.id).all()
+            for student_id, r in all_results.get(assessment.id, {}).items()
         }
         for assessment in latest_by_subject.values()
     }
@@ -2319,6 +2461,7 @@ def person_initials(name):
     return ".".join(w[0].upper() for w in parts)
 
 
+@request_cached
 def subject_teacher_initials(class_name):
     """Return teacher initials keyed by subject for this exact class.
 
@@ -2355,14 +2498,29 @@ def age_from_dob(value, today=None):
     return years if years >= 0 else ""
 
 
+@request_cached
+def _class_records_by_name():
+    return {c["name"]: c for c in all_academic_classes()}
+
+
+@request_cached
+def _class_teacher_staff(class_name):
+    academic_class = (
+        AcademicClass.query.options(joinedload(AcademicClass.class_teacher))
+        .filter_by(name=class_name).first()
+    )
+    return academic_class.class_teacher if academic_class else None
+
+
 def report_students_payload(report):
-    students = [s for s in all_students() if s["id"] in report.get("generated_student_ids", [])]
+    wanted = set(report.get("generated_student_ids", []))
+    students = [s for s in all_students() if s["id"] in wanted]
+    classes_by_name = _class_records_by_name()
     result = []
     for student in students:
         class_name = student.get("enrolled_class") or report["class_name"]
-        class_record = next((c for c in all_academic_classes() if c["name"] == class_name), None)
-        academic_class = AcademicClass.query.filter_by(name=class_name).first()
-        class_teacher_staff = academic_class.class_teacher if academic_class else None
+        class_record = classes_by_name.get(class_name)
+        class_teacher_staff = _class_teacher_staff(class_name)
         result.append(
             {
                 "id": student["id"],
@@ -2404,7 +2562,7 @@ def attendance_summary_for_class(class_name, on_date=None):
         if not record:
             record = query.order_by(AttendanceRecord.date.desc()).first()
         if record:
-            for mark in AttendanceMark.query.filter_by(attendance_record_id=record.id).all():
+            for mark in AttendanceMark.query.options(joinedload(AttendanceMark.student)).filter_by(attendance_record_id=record.id).all():
                 if mark.status == "Absent" and mark.student:
                     absent_names.append(mark.student.name)
 
@@ -2450,14 +2608,38 @@ def attendance_report_payload(report, all_reports):
     }
 
 
-def report_records(records):
+def report_records_light(records):
+    """The cheap part of report_records(): just the fields the Reports page
+    filters, searches, sorts and pages on (class name, type, status, date).
+    Building each report's full student payload is expensive, so it is done
+    afterwards, only for the handful of rows actually shown on the page."""
+    output = []
+    for report in records:
+        if report["report_type"] == "Attendance report":
+            attendance_scope = report.get("attendance_scope", "")
+            output.append({
+                **report,
+                "attendance_scope": attendance_scope,
+                "status": report.get("status", ""),
+                "class_name": attendance_scope or report.get("class_name", ""),
+            })
+        else:
+            output.append(report)
+    return output
+
+
+def report_records(records, source_records=None):
+    """Full payload (students, comments, marks / attendance summary) for the
+    given report rows. `source_records` is the complete unfiltered list that
+    attendance reports use to find their sibling classes."""
+    all_reports = source_records if source_records is not None else records
     output = []
     for report in records:
         attendance_scope = ""
         if report["report_type"] == "Attendance report":
             attendance_scope = report.get("attendance_scope", "")
             report = {**report, "attendance_scope": attendance_scope, "status": report.get("status", "")}
-            summary = attendance_report_payload(report, records)
+            summary = attendance_report_payload(report, all_reports)
             output.append(
                 {
                     **report,
@@ -2481,8 +2663,8 @@ def report_records(records):
 
 def completed_assessment_subjects(class_name):
     complete = []
-    for record in assessment_records():
-        if record["class_name"] == class_name and record["total_students"] and record["recorded_count"] == record["total_students"]:
+    for record in assessment_records(class_name):
+        if record["total_students"] and record["recorded_count"] == record["total_students"]:
             complete.append(record["subject"])
     return complete
 
@@ -2500,6 +2682,17 @@ def events_json_or_redirect(message):
 
 
 def get_current_term(today=None):
+    if today is None:
+        return _current_term_today()
+    return _compute_current_term(today)
+
+
+@request_cached
+def _current_term_today():
+    return _compute_current_term(None)
+
+
+def _compute_current_term(today=None):
     """Return the school-wide active term, or the term whose date range
     contains today if none is explicitly marked active yet."""
     active_term = Term.query.filter_by(is_active=True).first()
@@ -2513,6 +2706,7 @@ def get_current_term(today=None):
     return None
 
 
+@request_cached
 def term_options():
     terms = Term.query.order_by(Term.start_date).all()
     if terms:
@@ -2539,6 +2733,7 @@ def term_year_and_number(term_name):
     return int(match.group(2)), int(match.group(1))
 
 
+@request_cached
 def term_picker_payload():
     """Every term, shaped for the term-dates year grid (see term-picker.js)."""
     payload = []
@@ -4794,7 +4989,7 @@ def grades_class(tab, class_id):
     })
 
     if tab == "assessments":
-        records = [r for r in assessment_records() if r["class_name"] == academic_class.name]
+        records = assessment_records(academic_class.name)
         if search_query:
             query = search_query.lower()
             records = [
@@ -5128,12 +5323,18 @@ def reports():
     search_query = request.args.get("q", "").strip()
     sort = request.args.get("sort", "created_desc")
 
-    source_records = all_published_reports() if tab == "published" else all_report_batches()
-    records = report_records(source_records)
+    # The Mark Sheets tab never lists report rows, so don't load them at all.
+    if tab == "marksheets":
+        source_records = []
+    else:
+        source_records = all_published_reports() if tab == "published" else all_report_batches()
+    # Cheap pass first: filter / sort / page on light rows, then build the
+    # heavy student payload for the rows on the current page only.
+    records = report_records_light(source_records)
     selected_class = AcademicClass.query.get(class_id) if class_id else None
     if selected_class and selected_class.curriculum == "ACE":
         return redirect(url_for("ace", tab="reports", grade_id=selected_class.id))
-    standard_names = {item.name for item in AcademicClass.query.filter(AcademicClass.curriculum != "ACE").all()}
+    standard_names = {c["name"] for c in all_academic_classes() if c.get("curriculum", "Standard") != "ACE"}
     records = [record for record in records if record.get("class_name") in standard_names]
     if selected_class:
         records = [r for r in records if r.get("class_name") == selected_class.name]
@@ -5170,6 +5371,7 @@ def reports():
         classes_page, pagination = paginate(sorted_classes)
     else:
         records, pagination = paginate(records)
+        records = report_records(records, source_records)
 
     context = base_context("reports")
     context.update(
@@ -6273,6 +6475,40 @@ def print_timetable_board(board_id):
 # Version 9 deliberately does not use Alembic/Flask-Migrate.  The database is
 # created from the current SQLAlchemy models on first start, which prevents
 # old demo migrations from breaking a fresh deployment.
+# Indexes for the columns the Grades / Reports / Mark Sheet pages look rows up
+# by. Without them every lookup scans the whole table, which gets slower as
+# students and marks pile up. Created only if missing, so it is safe to run on
+# every start, on SQLite and PostgreSQL alike, and never touches your data.
+PERFORMANCE_INDEXES = [
+    ("ix_perf_students_class", "students", ["current_class_name"]),
+    ("ix_perf_subjects_class", "subjects", ["class_id"]),
+    ("ix_perf_assessments_subject", "assessments", ["subject_id", "assessment_type"]),
+    ("ix_perf_results_student", "assessment_results", ["student_id"]),
+    ("ix_perf_comments_student", "report_comments", ["student_id"]),
+    ("ix_perf_enrollments_class", "enrollments", ["class_id"]),
+    ("ix_perf_batches_class", "report_batches", ["class_id"]),
+    ("ix_perf_published_class", "published_reports", ["class_id"]),
+    ("ix_perf_attendance_class_date", "attendance_records", ["class_id", "date"]),
+    ("ix_perf_attendance_marks_record", "attendance_marks", ["attendance_record_id"]),
+    ("ix_perf_ace_results_student", "ace_pace_results", ["student_id"]),
+]
+
+
+def _ensure_performance_indexes():
+    inspector = inspect(db.engine)
+    tables = set(inspector.get_table_names())
+    for index_name, table_name, columns in PERFORMANCE_INDEXES:
+        if table_name not in tables:
+            continue
+        existing = {ix["name"] for ix in inspector.get_indexes(table_name)}
+        if index_name in existing:
+            continue
+        table = db.metadata.tables.get(table_name)
+        if table is None:
+            continue
+        Index(index_name, *[table.c[name] for name in columns]).create(bind=db.engine)
+
+
 def _initialize_fresh_database():
     with app.app_context():
         try:
@@ -6293,6 +6529,12 @@ def _initialize_fresh_database():
                 if "score" in ace_columns and "INTEGER" in str(ace_columns["score"]["type"]).upper():
                     db.session.execute(text("ALTER TABLE ace_pace_results ALTER COLUMN score TYPE DOUBLE PRECISION USING score::double precision"))
                     db.session.commit()
+
+            try:
+                _ensure_performance_indexes()
+            except Exception as exc:  # an index problem must never stop the app starting
+                db.session.rollback()
+                print(f"[STARTUP] Could not add performance indexes (app still runs): {exc}")
 
             # Keep the new installation usable while leaving all school data
             # (students, classes, marks, attendance, reports, etc.) empty.

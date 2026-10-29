@@ -5119,6 +5119,8 @@ table thead th:last-child,
 }
 .ace-pace-field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
 .ace-pace-field .form-input { text-align: center; padding-left: 8px; padding-right: 8px; }
+.ace-pace-extra .form-input { border-style: dashed; }
+.ace-pace-extra-actions { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
 .ace-notes-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 6px; }
 .ace-notes-grid textarea.form-input { min-height: 84px; resize: vertical; font-family: inherit; line-height: 1.45; }
 .ace-entry-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 18px; }

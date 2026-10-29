@@ -5646,11 +5646,33 @@ def save_ace_student(class_id, student_id):
         abort(404)
     grade = ace_grade_for_class(academic_class.name)
     allowed_paces = set(ACE_PACE_RANGES[grade])
+    back = redirect(url_for("ace", tab="grades", grade_id=class_id, student_id=student_id))
+    existing_rows = {(r.learning_area, r.pace_number): r for r in AcePaceResult.query.filter_by(student_id=student.id).all()}
     for area in ace_areas_for_grade(grade):
         field_area = area.replace(" ", "_")
-        for pace in allowed_paces:
-            raw = request.form.get(f"score_{field_area}_{pace}", "").strip()
-            existing = AcePaceResult.query.filter_by(student_id=student.id, learning_area=area, pace_number=pace).first()
+        # PACE numbers submitted for this learning area:
+        #  - the grade's own range (always shown),
+        #  - PACEs already saved outside the range (shown so they can be edited or cleared),
+        #  - extras added with "Add PACE below / above" (pupil is behind or ahead in this area).
+        submitted = {pace: request.form.get(f"score_{field_area}_{pace}", "").strip() for pace in allowed_paces}
+        for (row_area, row_pace) in existing_rows:
+            if row_area == area and row_pace not in allowed_paces and f"score_{field_area}_{row_pace}" in request.form:
+                submitted[row_pace] = request.form.get(f"score_{field_area}_{row_pace}", "").strip()
+        extra_paces = request.form.getlist(f"extra_pace_{field_area}")
+        extra_scores = request.form.getlist(f"extra_score_{field_area}")
+        for raw_pace, raw_score in zip(extra_paces, extra_scores):
+            raw_pace, raw_score = raw_pace.strip(), raw_score.strip()
+            if not raw_pace and not raw_score:
+                continue
+            if not raw_pace.isdigit() or not 1 <= int(raw_pace) <= 9999:
+                flash(f"{area}: enter a valid PACE number for the extra PACE.", "error")
+                return back
+            if not raw_score:
+                flash(f"{area} PACE {raw_pace}: enter a mark, or leave the extra PACE out.", "error")
+                return back
+            submitted[int(raw_pace)] = raw_score
+        for pace, raw in submitted.items():
+            existing = existing_rows.get((area, pace))
             if not raw:
                 if existing:
                     db.session.delete(existing)
@@ -5659,10 +5681,10 @@ def save_ace_student(class_id, student_id):
                 score = float(Decimal(raw))
             except (InvalidOperation, ValueError):
                 flash(f"{area} PACE {pace} must be a number.", "error")
-                return redirect(url_for("ace", tab="grades", grade_id=class_id, student_id=student_id))
+                return back
             if not 0 <= score <= 100:
                 flash(f"{area} PACE {pace} must be between 0 and 100.", "error")
-                return redirect(url_for("ace", tab="grades", grade_id=class_id, student_id=student_id))
+                return back
             if existing:
                 existing.score = score
             else:

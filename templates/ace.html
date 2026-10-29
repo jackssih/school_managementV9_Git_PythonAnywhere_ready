@@ -386,18 +386,38 @@
     <form method="post" action="{{ url_for('save_ace_student', class_id=selected_class.id, student_id=selected_student.id) }}" class="ace-entry-card">
       <div class="ace-entry-head">
         <h3>Record PACE marks</h3>
-        <p class="form-subheading">Only the marks you enter appear on the ACE report card. Leave a box empty if the PACE has not been done.</p>
+        <p class="form-subheading">Only the marks you enter appear on the ACE report card. Leave a box empty if the PACE has not been done. A pupil can be ahead or behind in a learning area: use <strong>Add PACE</strong> to record a PACE number outside this grade's range. To remove one, clear its mark and save.</p>
       </div>
 
       {% for area in ace_areas %}
         <section class="ace-area-block ace-area-{{ area|lower|replace(' ', '-') }}">
           <p class="ace-area-title"><span class="ace-area-dot"></span>{{ area }}<span class="ace-area-count">{{ selected_student.area_scores[area]|length }} entered</span></p>
-          <div class="ace-pace-grid">
-            {% for pace in paces %}
-              <label class="ace-pace-field">PACE {{ pace }}
-                <input class="form-input" type="number" inputmode="decimal" min="0" max="100" step="0.01" name="score_{{ area|replace(' ', '_') }}_{{ pace }}" value="{% set mark = selected_student.scores.get(area ~ ':' ~ pace) %}{% if mark is not none %}{{ '%g'|format(mark) }}{% endif %}" placeholder="—">
+          {% set pace_min = paces|min %}{% set pace_max = paces|max %}
+          {% set area_key = area|replace(' ', '_') %}
+          {% set lower_done = selected_student.area_scores[area]|selectattr('pace', 'lt', pace_min)|list %}
+          {% set higher_done = selected_student.area_scores[area]|selectattr('pace', 'gt', pace_max)|list %}
+          <div class="ace-pace-grid" data-area="{{ area_key }}" data-min="{{ pace_min }}" data-max="{{ pace_max }}">
+            <span class="ace-pace-anchor-low" hidden></span>
+            {% for item in lower_done %}
+              <label class="ace-pace-field ace-pace-extra">PACE {{ item.pace }}
+                <input class="form-input" type="number" inputmode="decimal" min="0" max="100" step="0.01" name="score_{{ area_key }}_{{ item.pace }}" value="{{ '%g'|format(selected_student.scores.get(area ~ ':' ~ item.pace)) }}" placeholder="—">
               </label>
             {% endfor %}
+            {% for pace in paces %}
+              <label class="ace-pace-field">PACE {{ pace }}
+                <input class="form-input" type="number" inputmode="decimal" min="0" max="100" step="0.01" name="score_{{ area_key }}_{{ pace }}" value="{% set mark = selected_student.scores.get(area ~ ':' ~ pace) %}{% if mark is not none %}{{ '%g'|format(mark) }}{% endif %}" placeholder="—">
+              </label>
+            {% endfor %}
+            {% for item in higher_done %}
+              <label class="ace-pace-field ace-pace-extra">PACE {{ item.pace }}
+                <input class="form-input" type="number" inputmode="decimal" min="0" max="100" step="0.01" name="score_{{ area_key }}_{{ item.pace }}" value="{{ '%g'|format(selected_student.scores.get(area ~ ':' ~ item.pace)) }}" placeholder="—">
+              </label>
+            {% endfor %}
+            <span class="ace-pace-anchor-high" hidden></span>
+          </div>
+          <div class="ace-pace-extra-actions">
+            <button type="button" class="link-btn" data-add-pace="low" data-area="{{ area_key }}"><i class="ti ti-plus"></i> Add PACE below {{ pace_min }}</button>
+            <button type="button" class="link-btn" data-add-pace="high" data-area="{{ area_key }}"><i class="ti ti-plus"></i> Add PACE above {{ pace_max }}</button>
           </div>
         </section>
       {% endfor %}
@@ -495,6 +515,26 @@
 {% endblock %}
 
 {% block scripts %}
+  <script>
+    // "Add PACE below/above": adds a PACE-number box + score box to that learning area.
+    document.querySelectorAll('[data-add-pace]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var grid = document.querySelector('.ace-pace-grid[data-area="' + button.dataset.area + '"]');
+        var low = button.dataset.addPace === 'low';
+        var min = parseInt(grid.dataset.min, 10), max = parseInt(grid.dataset.max, 10);
+        var wrap = document.createElement('div');
+        wrap.className = 'ace-pace-field ace-pace-extra';
+        wrap.innerHTML = '<span>' + (low ? 'PACE below ' + min : 'PACE above ' + max) + '</span>' +
+          '<input class="form-input" type="number" step="1" ' + (low ? 'min="1" max="' + (min - 1) + '"' : 'min="' + (max + 1) + '"') +
+          ' name="extra_pace_' + button.dataset.area + '" placeholder="PACE no.">' +
+          '<input class="form-input" type="number" inputmode="decimal" min="0" max="100" step="0.01" name="extra_score_' + button.dataset.area + '" placeholder="Mark">';
+        var anchor = grid.querySelector(low ? '.ace-pace-anchor-low' : '.ace-pace-anchor-high');
+        if (low) { anchor.after(wrap); } else { anchor.before(wrap); }
+        wrap.querySelector('input').focus();
+      });
+    });
+  </script>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lobster+Two:wght@700&display=swap">

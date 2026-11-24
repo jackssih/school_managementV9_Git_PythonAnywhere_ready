@@ -5390,3 +5390,26 @@ table thead th:last-child,
 
 /* Off-screen copy used only while a Primary report PDF is generated. */
 #reportPrintContainer.report-print-offscreen { left: -12000px; z-index: -1; }
+/* Third-term promotion seal (End of term report): round, upright,
+   watermark-style single ink in the report's red, sitting on the same
+   line as the head teacher's signature (seal left, signature right). */
+.jsr-page .jsr-sig-row { display: flex; align-items: center; justify-content: space-between; margin-top: 22px; }
+.jsr-page .jsr-sig-row .jsr-head-sig { margin: 0 0 0 auto; }
+.jsr-page .jsr-promo {
+    flex: 1; display: flex; justify-content: flex-end; align-items: center; padding-right: 12px;
+    color: #2f6fc0; opacity: .85;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.jsr-page .jsr-promo svg { display: block; }
+
+/* Page count stays left; the PDF and Word buttons sit together on the right. */
+.report-document-actions #reportPageCount { margin-right: auto; }
+
+/* Head teacher's signature: shorter line, centred on the page. When a promotion
+   seal is present it sits to the RIGHT of the signature and overlaps the end of
+   the signature line. */
+.jsr-page .jsr-sig-row { justify-content: center; }
+.jsr-page .jsr-sig-row .jsr-head-sig { width: 36%; margin: 0 auto; }
+.jsr-page .jsr-sig-row.jsr-sig-row-seal { position: relative; justify-content: center; padding-right: 0; margin-bottom: 56px; }
+/* Signature spans 32%-68% of the row; the seal starts 30px inside its right end. */
+.jsr-page .jsr-sig-row.jsr-sig-row-seal .jsr-promo { position: absolute; left: calc(68% - 30px); right: auto; bottom: -55px; flex: none; padding-right: 0; z-index: 2; }

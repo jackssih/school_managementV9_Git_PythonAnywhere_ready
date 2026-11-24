@@ -21,6 +21,521 @@
         }
     }
 
+    // === WORD EXPORT START ===
+    // "Download as Word": builds the Terminal Report as a real, editable
+    // .docx file (WordprocessingML written by hand and packed into a zip,
+    // so no extra libraries are needed). Logo, signatures and the
+    // promotion seal are embedded as PNG images.
+
+    function terminalWordData(student) {
+        const groups = groupMarkRows(student);
+        const periods = ["B.O.T.", "Mid", "EOT"];
+        const subjects = (student.main_subjects || []).slice();
+        const initialsBySubject = student.subject_teacher_initials || {};
+
+        const totals = periods.map(() => ({ sum: 0, count: 0, aggSum: 0 }));
+        const rows = subjects.map((subject) => {
+            const cells = periods.map((p, i) => {
+                const c = terminalCell(groups, p, subject);
+                if (c.grade) {
+                    totals[i].sum += c.mark; totals[i].count += 1; totals[i].aggSum += c.grade.agg;
+                }
+                return c;
+            });
+            const latest = [...cells].reverse().find((c) => c.grade);
+            return {
+                area: subject,
+                full: "100",
+                cells: cells.map((c) => ({ mark: c.grade ? String(c.mark) : "", label: c.grade ? c.grade.label : "" })),
+                comment: latest ? latest.grade.comment : "",
+                init: teacherInitialsForSubject(subject, initialsBySubject),
+            };
+        });
+
+        const otherRows = (student.assessments || []).filter((r) => r.mode === "letter");
+        const otherBySubject = {};
+        otherRows.forEach((r) => { if (!otherBySubject[r.subject] || r.grade) otherBySubject[r.subject] = r; });
+        Object.keys(otherBySubject).forEach((subject) => {
+            rows.push({
+                area: subject, full: "",
+                cells: periods.map(() => ({ mark: "", label: "" })),
+                comment: otherBySubject[subject].grade || "",
+                init: teacherInitialsForSubject(subject, initialsBySubject),
+            });
+        });
+        while (rows.length < 6) {
+            rows.push({ area: "", full: "", cells: periods.map(() => ({ mark: "", label: "" })), comment: "", init: "" });
+        }
+
+        const avg = totals.map((t) => {
+            if (!t.count) return { mark: "", label: "", comment: "" };
+            const mark = Math.round(t.sum / t.count);
+            const g = gradeForMark(mark);
+            return { mark: String(mark), label: g.label, comment: g.comment };
+        });
+        const latestAvg = [...avg].reverse().find((a) => a.label);
+
+        let lastIdx = -1;
+        totals.forEach((t, i) => { if (t.count) lastIdx = i; });
+        const totalAgg = lastIdx >= 0 ? totals[lastIdx].aggSum : null;
+        const division = totalAgg !== null ? romanDivision(totalAgg) : "";
+        return { rows, avg, avgComment: latestAvg ? latestAvg.comment : "", totalAgg, division };
+    }
+
+    // ---- tiny WordprocessingML helpers -----------------------------------
+    const WX = (s) => String(s ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+    const W_SERIF = "Times New Roman", W_HAND = "Comic Sans MS", W_SANS = "Arial", W_CAL = "Calibri";
+    let wDrawingId = 0;
+
+    function wRun(text, o = {}) {
+        const f = o.font || W_SERIF;
+        const pr = `<w:rFonts w:ascii="${f}" w:hAnsi="${f}" w:cs="${f}"/>`
+            + (o.b ? "<w:b/>" : "") + (o.i ? "<w:i/>" : "")
+            + (o.color ? `<w:color w:val="${o.color}"/>` : "")
+            + `<w:sz w:val="${Math.round((o.size || 10) * 2)}"/><w:szCs w:val="${Math.round((o.size || 10) * 2)}"/>`
+            + (o.u ? '<w:u w:val="single"/>' : "")
+            + (o.fill ? `<w:shd w:val="clear" w:color="auto" w:fill="${o.fill}"/>` : "");
+        return `<w:r><w:rPr>${pr}</w:rPr><w:t xml:space="preserve">${WX(text)}</w:t></w:r>`;
+    }
+
+    function wPara(inner, o = {}) {
+        const pr = (o.pageBreakBefore ? "<w:pageBreakBefore/>" : "")
+            + `<w:spacing w:before="${o.before || 0}" w:after="${o.after || 0}"${o.line ? ` w:line="${o.line}" w:lineRule="${o.lineRule || "auto"}"` : ""}/>`
+            + (o.align ? `<w:jc w:val="${o.align}"/>` : "");
+        return `<w:p><w:pPr>${pr}</w:pPr>${inner || ""}</w:p>`;
+    }
+
+    function wImage(img, maxW, maxH) {
+        if (!img) return "";
+        const r = Math.min(maxW / img.w, maxH / img.h, 1);
+        const cx = Math.round(img.w * r * 9525), cy = Math.round(img.h * r * 9525);
+        const id = ++wDrawingId;
+        return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/>`
+            + `<wp:docPr id="${id}" name="Picture ${id}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>`
+            + `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic>`
+            + `<pic:nvPicPr><pic:cNvPr id="${id}" name="${WX(img.file)}"/><pic:cNvPicPr/></pic:nvPicPr>`
+            + `<pic:blipFill><a:blip r:embed="${img.rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`
+            + `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>`
+            + `</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+    }
+
+    // Floating (anchored) picture, positioned relative to its paragraph/column so it can
+    // overlap neighbouring content, e.g. the promotion seal over the end of a signature line.
+    // offX/offY are in pixels from the column's left edge / the paragraph's top.
+    function wImageFloat(img, maxW, maxH, offX, offY) {
+        if (!img) return "";
+        const r = Math.min(maxW / img.w, maxH / img.h, 1);
+        const cx = Math.round(img.w * r * 9525), cy = Math.round(img.h * r * 9525);
+        const id = ++wDrawingId;
+        return `<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="${251658240 + id}" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">`
+            + `<wp:simplePos x="0" y="0"/>`
+            + `<wp:positionH relativeFrom="column"><wp:posOffset>${Math.round(offX * 9525)}</wp:posOffset></wp:positionH>`
+            + `<wp:positionV relativeFrom="paragraph"><wp:posOffset>${Math.round(offY * 9525)}</wp:posOffset></wp:positionV>`
+            + `<wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/>`
+            + `<wp:docPr id="${id}" name="Picture ${id}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>`
+            + `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic>`
+            + `<pic:nvPicPr><pic:cNvPr id="${id}" name="${WX(img.file)}"/><pic:cNvPicPr/></pic:nvPicPr>`
+            + `<pic:blipFill><a:blip r:embed="${img.rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`
+            + `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>`
+            + `</pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>`;
+    }
+
+    // b: border size (eighths of a point) for { top, left, bottom, right }; 0/undefined = none
+    function wCell(paras, o = {}) {
+        const side = (n, v) => (v ? `<w:${n} w:val="single" w:sz="${v}" w:space="0" w:color="222222"/>` : "");
+        const b = o.b || {};
+        const borders = (b.top || b.left || b.bottom || b.right)
+            ? `<w:tcBorders>${side("top", b.top)}${side("left", b.left)}${side("bottom", b.bottom)}${side("right", b.right)}</w:tcBorders>` : "";
+        const pr = `<w:tcW w:w="${o.w}" w:type="dxa"/>`
+            + (o.span ? `<w:gridSpan w:val="${o.span}"/>` : "")
+            + (o.vm ? (o.vm === "restart" ? '<w:vMerge w:val="restart"/>' : "<w:vMerge/>") : "")
+            + borders
+            + (o.fill ? `<w:shd w:val="clear" w:color="auto" w:fill="${o.fill}"/>` : "")
+            + `<w:vAlign w:val="${o.va || "center"}"/>`;
+        return `<w:tc><w:tcPr>${pr}</w:tcPr>${paras || "<w:p/>"}</w:tc>`;
+    }
+
+    function wRow(cells, height) {
+        return `<w:tr><w:trPr><w:cantSplit/>${height ? `<w:trHeight w:val="${height}" w:hRule="atLeast"/>` : ""}</w:trPr>${cells.join("")}</w:tr>`;
+    }
+
+    function wTable(widths, rows) {
+        const total = widths.reduce((a, c) => a + c, 0);
+        return `<w:tbl><w:tblPr><w:tblW w:w="${total}" w:type="dxa"/><w:tblLayout w:type="fixed"/>`
+            + `<w:tblCellMar><w:top w:w="20" w:type="dxa"/><w:left w:w="70" w:type="dxa"/><w:bottom w:w="20" w:type="dxa"/><w:right w:w="70" w:type="dxa"/></w:tblCellMar></w:tblPr>`
+            + `<w:tblGrid>${widths.map((w) => `<w:gridCol w:w="${w}"/>`).join("")}</w:tblGrid>${rows.join("")}</w:tbl>`;
+    }
+
+    const wGap = (twips) => wPara("", { line: twips, lineRule: "exact" });
+
+    // imgs: { logo, teacherSig, headSig, seal } -> { rid, file, w, h } or undefined
+    function terminalWordPage(student, imgs, pageBreak) {
+        const d = terminalWordData(student);
+        const T = 10200; // text width in twips (A4 minus 1.5 cm margins)
+        const age = student.age !== undefined && student.age !== "" ? `${student.age}YRS` : "—";
+        const year = TERM_TITLE_YEAR || String(new Date().getFullYear());
+        const title = terminalTitleForReport(activeReport && activeReport.report_type);
+        const out = [];
+
+        if (pageBreak) out.push(wPara("", { pageBreakBefore: true, line: 20, lineRule: "exact" }));
+
+        // School header: name/address/phone on the left, logo on the right.
+        const headText = wPara(wRun(SCHOOL_NAME, { b: true, size: 20 }), { align: "center" })
+            + (SCHOOL_INFO.address ? wPara(wRun(SCHOOL_INFO.address, { size: 11 }), { align: "center" }) : "")
+            + (SCHOOL_INFO.phone ? wPara(wRun(`Phone: ${SCHOOL_INFO.phone}`, { b: true, size: 10.5 }), { align: "center" }) : "");
+        const logoCell = imgs.logo
+            ? wPara(wImage(imgs.logo, 120, 90), { align: "right" })
+            : wPara(wRun(schoolInitials(SCHOOL_NAME), { b: true, size: 20, font: W_SANS }), { align: "center" });
+        out.push(wTable([T - 2000, 2000], [wRow([
+            wCell(headText, { w: T - 2000 }),
+            wCell(logoCell, imgs.logo ? { w: 2000 } : { w: 2000, b: { top: 16, left: 16, bottom: 16, right: 16 } }),
+        ])]));
+
+        out.push(wPara(wRun(` ${title} `, { b: true, size: 13, fill: "000000", color: "FFFFFF" }), { align: "center", before: 260, after: 200 }));
+
+        // Pupil details lines.
+        const lab = (txt, w) => wCell(wPara(wRun(txt, { b: true, size: 10, font: W_SANS })), { w, va: "bottom" });
+        const fill = (txt, w) => wCell(wPara(wRun(txt, { b: true, size: 12 }), { align: "center" }), { w, va: "bottom", b: { bottom: 8 } });
+        out.push(wTable([1900, 5300, 800, 2200], [wRow([
+            lab("PUPIL'S NAME:", 1900), fill((student.name || "").toUpperCase(), 5300), lab("AGE:", 800), fill(age, 2200),
+        ], 380)]));
+        out.push(wGap(60));
+        out.push(wTable([900, 3000, 800, 2100, 900, 2500], [wRow([
+            lab("CLASS", 900), fill(student.class_name || "", 3000), lab("TERM", 800), fill(termRoman(), 2100), lab("YEAR:", 900), fill(year, 2500),
+        ], 380)]));
+        out.push(wGap(160));
+
+        // Marks table.
+        const W = [2200, 900, 700, 700, 700, 700, 700, 700, 1650, 1250];
+        const all = { top: 8, left: 8, bottom: 8, right: 8 };
+        const head = (txt, w, extra) => wCell(wPara(wRun(txt, { b: true, size: 10 }), { align: (extra && extra.align) || "center" }),
+            Object.assign({ w, b: all }, extra || {}));
+        const headTwo = (a, bTxt, w, extra) => wCell(
+            wPara(wRun(a, { b: true, size: 9 }), { align: "center" }) + wPara(wRun(bTxt, { b: true, size: 9 }), { align: "center" }),
+            Object.assign({ w, b: all }, extra || {}));
+        const cont = (w) => wCell("<w:p/>", { w, b: all, vm: "cont" });
+        const rows = [
+            wRow([
+                head("LEARNING AREA", W[0], { vm: "restart", align: "left" }),
+                headTwo("FULL", "MARKS", W[1], { vm: "restart" }),
+                head("SCORED MARKS", W[2] * 6, { span: 6 }),
+                head("COMMENTS", W[8], { vm: "restart" }),
+                headTwo("TEACHER'S", "INITIALS", W[9], { vm: "restart" }),
+            ]),
+            wRow([
+                cont(W[0]), cont(W[1]),
+                head("BOT", W[2] * 2, { span: 2 }), head("MID TERM", W[2] * 2, { span: 2 }), head("END OF TERM", W[2] * 2, { span: 2 }),
+                cont(W[8]), cont(W[9]),
+            ]),
+            wRow([
+                cont(W[0]), cont(W[1]),
+                ...["%", "AGG", "%", "AGG", "%", "AGG"].map((t, i) => head(t, W[2 + i])),
+                cont(W[8]), cont(W[9]),
+            ]),
+        ];
+        const cell = (txt, w, o) => wCell(wPara(wRun(txt, o), { align: o.align || "center" }), { w, b: all });
+        d.rows.forEach((r) => {
+            rows.push(wRow([
+                cell(String(r.area || "").toUpperCase(), W[0], { size: 10, align: "left" }),
+                cell(r.full, W[1], { size: 10 }),
+                ...r.cells.flatMap((c, i) => [
+                    cell(c.mark, W[2 + i * 2], { b: true, size: 10.5, color: "E11D1D", font: W_SANS }),
+                    cell(c.label, W[3 + i * 2], { b: true, size: 10.5, color: "1A9A3A", font: W_SANS }),
+                ]),
+                cell(String(r.comment || "").toUpperCase(), W[8], { b: true, i: true, size: 9.5, color: "2A1F8F", font: W_HAND }),
+                cell(r.init, W[9], { b: true, size: 9, font: W_SANS }),
+            ], 480));
+        });
+        rows.push(wRow([
+            cell("AVERAGE", W[0], { b: true, size: 10.5, align: "left" }),
+            cell("100", W[1], { size: 10 }),
+            ...d.avg.flatMap((a, i) => [
+                cell(a.mark, W[2 + i * 2], { b: true, size: 10.5, color: "E11D1D", font: W_SANS }),
+                cell(a.label, W[3 + i * 2], { b: true, size: 10.5, color: "1A9A3A", font: W_SANS }),
+            ]),
+            cell(String(d.avgComment || "").toUpperCase(), W[8], { b: true, i: true, size: 9.5, color: "2A1F8F", font: W_HAND }),
+            cell("", W[9], { size: 10 }),
+        ], 560));
+        out.push(wTable(W, rows));
+        out.push(wGap(200));
+
+        // Division and aggregates.
+        const thick = { top: 16, left: 16, bottom: 16, right: 16 };
+        const div = (txt, w, align) => wCell(wPara(wRun(txt, { b: true, size: 11, font: W_CAL }), { align }), { w, b: thick });
+        out.push(wTable([3900, 1400, 4900], [wRow([
+            div("DIVISION", 3900, "left"), div(d.division, 1400, "center"),
+            div(d.totalAgg !== null ? `${d.totalAgg} AGGREGATES` : "AGGREGATES", 4900, "left"),
+        ], 560)]));
+
+        // Class teacher's comment and conduct.
+        out.push(wPara(
+            wRun("Class Teacher's Comment: ", { size: 11, font: W_HAND })
+            + wRun(student.comments["Class teacher"] || " ", { size: 11, font: W_HAND, u: true }),
+            { before: 260, line: 360 }));
+        out.push(wPara(
+            wRun("Pupil's Conduct: ", { size: 11, font: W_HAND }) + wRun(PUPIL_CONDUCT, { b: true, size: 14, font: W_HAND }),
+            { before: 200, after: 80 }));
+
+        // Teacher's name and signature.
+        const sigLine = (inner, w) => wCell(inner, { w, va: "bottom", b: { bottom: 8 } });
+        out.push(wTable([5100, 400, 4700], [wRow([
+            sigLine(wPara(wRun("Teacher's Name: ", { size: 11, font: W_HAND }) + wRun(`Tr. ${student.class_teacher || ""}`, { b: true, size: 11, font: W_HAND })), 5100),
+            wCell("<w:p/>", { w: 400 }),
+            sigLine(wPara(wRun("Signature: ", { size: 11, font: W_HAND }) + wImage(imgs.teacherSig, 150, 50)), 4700),
+        ], 900)]));
+        out.push(wGap(120));
+
+        // Head teacher's signature centred with a shorter line; the promotion seal sits
+        // to the right of it, overlapping the end of the line.
+        const HS = 3400; // signature column width (twips)
+        const side = (T - HS) / 2;
+        const SEAL = 140; // seal size (px)
+        const sealFloat = imgs.seal ? wImageFloat(imgs.seal, SEAL, SEAL, (HS / 15) - 28, 50 - SEAL / 2) : "";
+        out.push(wTable([side, HS, side], [
+            wRow([
+                wCell("<w:p/>", { w: side }),
+                wCell(wPara(wImage(imgs.headSig, 150, 50) + sealFloat, { align: "center" }), { w: HS, va: "bottom", b: { bottom: 8 } }),
+                wCell("<w:p/>", { w: side }),
+            ], 900),
+            wRow([
+                wCell("<w:p/>", { w: side }),
+                wCell(wPara(wRun("HEADTEACHER'S SIGNATURE", { b: true, size: 10 }), { align: "center" }), { w: HS }),
+                wCell("<w:p/>", { w: side }),
+            ]),
+        ]));
+        if (imgs.seal) out.push(wGap(600)); // room for the part of the seal that hangs below the line
+
+        if (SCHOOL_INFO.motto) {
+            out.push(wPara(wRun(`\u201C${SCHOOL_INFO.motto}\u201D`, { b: true, i: true, size: 11, color: "4A86C8" }), { align: "center", before: 300 }));
+        } else {
+            out.push(wPara(""));
+        }
+        return out.join("");
+    }
+
+    // ---- minimal zip writer (store only) ---------------------------------
+    let crcTable = null;
+    function crc32(bytes) {
+        if (!crcTable) {
+            crcTable = new Uint32Array(256);
+            for (let n = 0; n < 256; n += 1) {
+                let c = n;
+                for (let k = 0; k < 8; k += 1) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+                crcTable[n] = c >>> 0;
+            }
+        }
+        let crc = 0xFFFFFFFF;
+        for (let i = 0; i < bytes.length; i += 1) crc = crcTable[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+        return (crc ^ 0xFFFFFFFF) >>> 0;
+    }
+
+    function zipStore(files, mime) {
+        const enc = new TextEncoder();
+        const chunks = [];
+        const central = [];
+        let offset = 0;
+        files.forEach((f) => {
+            const name = enc.encode(f.name);
+            const crc = crc32(f.data);
+            const size = f.data.length;
+            const lh = new Uint8Array(30 + name.length);
+            const lv = new DataView(lh.buffer);
+            lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true); lv.setUint16(6, 0x0800, true);
+            lv.setUint16(8, 0, true); lv.setUint16(10, 0, true); lv.setUint16(12, 0x21, true);
+            lv.setUint32(14, crc, true); lv.setUint32(18, size, true); lv.setUint32(22, size, true);
+            lv.setUint16(26, name.length, true); lv.setUint16(28, 0, true);
+            lh.set(name, 30);
+            chunks.push(lh, f.data);
+            const ch = new Uint8Array(46 + name.length);
+            const cv = new DataView(ch.buffer);
+            cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true); cv.setUint16(8, 0x0800, true);
+            cv.setUint16(10, 0, true); cv.setUint16(12, 0, true); cv.setUint16(14, 0x21, true);
+            cv.setUint32(16, crc, true); cv.setUint32(20, size, true); cv.setUint32(24, size, true);
+            cv.setUint16(28, name.length, true);
+            cv.setUint32(42, offset, true);
+            ch.set(name, 46);
+            central.push(ch);
+            offset += lh.length + size;
+        });
+        const cdSize = central.reduce((a, c) => a + c.length, 0);
+        const eocd = new Uint8Array(22);
+        const ev = new DataView(eocd.buffer);
+        ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, files.length, true); ev.setUint16(10, files.length, true);
+        ev.setUint32(12, cdSize, true); ev.setUint32(16, offset, true);
+        return new Blob([...chunks, ...central, eocd], { type: mime });
+    }
+
+    // images: [{ rid, file, base64 }]; bodyXml: concatenated page XML.
+    function buildReportDocx(bodyXml, images) {
+        const enc = new TextEncoder();
+        const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+            + 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+            + 'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
+            + 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+            + 'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
+        const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`
+            + `<w:document ${NS}><w:body>${bodyXml}`
+            + `<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="680" w:right="850" w:bottom="680" w:left="850" w:header="400" w:footer="400" w:gutter="0"/></w:sectPr>`
+            + `</w:body></w:document>`;
+        const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`
+            + `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`
+            + `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`
+            + `<Default Extension="xml" ContentType="application/xml"/>`
+            + `<Default Extension="png" ContentType="image/png"/>`
+            + `<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>`
+            + `</Types>`;
+        const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`
+            + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
+            + `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>`
+            + `</Relationships>`;
+        const docRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`
+            + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
+            + images.map((im) => `<Relationship Id="${im.rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${im.file}"/>`).join("")
+            + `</Relationships>`;
+        const b64ToBytes = (b64) => {
+            const bin = atob(b64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+            return bytes;
+        };
+        const files = [
+            { name: "[Content_Types].xml", data: enc.encode(contentTypes) },
+            { name: "_rels/.rels", data: enc.encode(rootRels) },
+            { name: "word/document.xml", data: enc.encode(documentXml) },
+            { name: "word/_rels/document.xml.rels", data: enc.encode(docRels) },
+            ...images.map((im) => ({ name: `word/${im.file}`, data: b64ToBytes(im.base64) })),
+        ];
+        return zipStore(files, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    }
+
+    // ---- image helpers (browser only) ------------------------------------
+    function loadImageElement(src) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = src;
+        });
+    }
+
+    function rasterToPng(img, width, height, maxPx) {
+        const scale = Math.min(1, maxPx / Math.max(width, height));
+        const w = Math.max(1, Math.round(width * scale));
+        const h = Math.max(1, Math.round(height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        return { base64: canvas.toDataURL("image/png").split(",")[1], w, h };
+    }
+
+    // Fetch an image and convert it to PNG so Word can always read it.
+    async function imageUrlToPng(url) {
+        if (!url) return null;
+        try {
+            const resp = await fetch(url, { credentials: "same-origin" });
+            if (!resp.ok) return null;
+            const objectUrl = URL.createObjectURL(await resp.blob());
+            try {
+                const img = await loadImageElement(objectUrl);
+                return rasterToPng(img, img.naturalWidth || 300, img.naturalHeight || 200, 700);
+            } finally {
+                URL.revokeObjectURL(objectUrl);
+            }
+        } catch (error) {
+            return null;
+        }
+    }
+
+    async function sealToPng(info) {
+        const svg = promoSealSvg(info.top, info.centre, "wordSeal", "#1f8a3b", 360);
+        const objectUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+        try {
+            const img = await loadImageElement(objectUrl);
+            return rasterToPng(img, 360, 360, 360);
+        } catch (error) {
+            return null;
+        } finally {
+            URL.revokeObjectURL(objectUrl);
+        }
+    }
+
+    async function downloadReportWord() {
+        const btn = document.getElementById("reportWordBtn");
+        if (btn.disabled) return;
+        if (!activeReport || !USE_TERMINAL_TEMPLATE || activeReport.report_type === "Attendance report") {
+            alert("Word download is available for the primary school report cards.");
+            return;
+        }
+        const students = activeReport.students || [];
+        if (!students.length) {
+            alert("There is no report content to download.");
+            return;
+        }
+        const mode = isMobileView() ? "all" : previewMode;
+        const chosen = mode === "all" ? students : [selectedStudent()].filter(Boolean);
+
+        const originalIcon = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ti ti-loader-2"></i>';
+        try {
+            const images = [];
+            const register = (png) => {
+                if (!png) return undefined;
+                const n = images.length + 1;
+                const img = { rid: `rIdImg${n}`, file: `media/image${n}.png`, base64: png.base64, w: png.w, h: png.h };
+                images.push(img);
+                return img;
+            };
+            wDrawingId = 0;
+            const logo = register(await imageUrlToPng(SCHOOL_INFO.logo_url));
+            const headSig = register(await imageUrlToPng(HEAD_TEACHER && HEAD_TEACHER.signature_url));
+            const sealCache = {};
+            const sigCache = {};
+            let body = "";
+            for (let i = 0; i < chosen.length; i += 1) {
+                const student = chosen[i];
+                let teacherSig;
+                const sigUrl = student.class_teacher_signature_url || "";
+                if (sigUrl) {
+                    if (!(sigUrl in sigCache)) sigCache[sigUrl] = register(await imageUrlToPng(sigUrl));
+                    teacherSig = sigCache[sigUrl];
+                }
+                let seal;
+                const info = promotionInfo(student);
+                if (info) {
+                    const key = `${info.top}|${info.centre}`;
+                    if (!(key in sealCache)) sealCache[key] = register(await sealToPng(info));
+                    seal = sealCache[key];
+                }
+                body += terminalWordPage(student, { logo, headSig, teacherSig, seal }, i > 0);
+            }
+
+            const slug = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+            const baseName = slug(activeReport.class_name
+                ? `${activeReport.class_name}-${activeReport.report_type}`
+                : activeReport.report_type || "report");
+            const nameSuffix = chosen.length === 1 && slug(chosen[0].name) ? `-${slug(chosen[0].name)}` : "";
+            const blob = buildReportDocx(body, images);
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `${baseName || "report"}${nameSuffix}.docx`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.setTimeout(() => URL.revokeObjectURL(url), 120000);
+        } catch (error) {
+            console.error("Could not generate Word report:", error);
+            alert("Something went wrong generating the Word document. Please try again.");
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalIcon;
+        }
+    }
+    // === WORD EXPORT END ===
+
     function selectedStudent() {
         const students = activeReport?.students || [];
         return students.find((student) => student.id === activeStudentId) || students[0];
@@ -565,6 +1080,96 @@
         return "TERMINAL REPORT";
     }
 
+    // Third-term End of term reports carry an automatic round promotion seal,
+    // placed on the same line as the head teacher's signature:
+    // "Primary 4" / "P.4 A" -> "P.5". Final-year (P.7) pupils get a
+    // completion seal instead of a non-existent P.8.
+    function promotionInfo(student) {
+        const reportType = activeReport && activeReport.report_type;
+        if (reportType !== "End of term" || termRoman() !== "III") return null;
+        const match = String(student.class_name || "").match(/^\s*(?:primary|p)\.?\s*([1-7])/i);
+        if (!match) return null;
+        const level = Number(match[1]);
+        return {
+            top: level >= 7 ? "COMPLETED" : "PROMOTED TO",
+            centre: level >= 7 ? "P.7" : `P.${level + 1}`,
+        };
+    }
+
+    // Official-looking round seal: scalloped edge, double ring, curved
+    // "PROMOTED TO" on top, academic year underneath, class in the middle.
+    function sealStar(cx, cy, outer) {
+        const inner = outer * 0.42;
+        const pts = [];
+        for (let i = 0; i < 10; i += 1) {
+            const r = i % 2 ? inner : outer;
+            const ang = -Math.PI / 2 + (i * Math.PI) / 5;
+            pts.push(`${(cx + r * Math.cos(ang)).toFixed(2)},${(cy + r * Math.sin(ang)).toFixed(2)}`);
+        }
+        return `<polygon points="${pts.join(" ")}"/>`;
+    }
+
+    // Curved text without <textPath> (so every browser/renderer agrees):
+    // each letter is placed at the top/bottom of the circle and rotated
+    // about the seal's centre.
+    function sealArcText(text, radius, fontSize, spacing, bottom, attrs) {
+        const narrow = { I: 0.42, " ": 0.32, ".": 0.3, M: 0.95, W: 0.95 };
+        const chars = Array.from(String(text));
+        const widths = chars.map((ch) => (narrow[ch] !== undefined ? narrow[ch] : 0.72) * fontSize + spacing);
+        const total = widths.reduce((a, c) => a + c, 0) - spacing;
+        let pos = 0;
+        return chars.map((ch, i) => {
+            const mid = pos + widths[i] / 2 - spacing / 2;
+            pos += widths[i];
+            if (ch === " ") return "";
+            const deg = (((mid - total / 2) / radius) * 180) / Math.PI;
+            const y = bottom ? 60 + radius : 60 - radius;
+            const rot = bottom ? -deg : deg;
+            return `<text x="60" y="${y}" ${attrs} font-size="${fontSize}" transform="rotate(${rot.toFixed(2)} 60 60)">${escapeHtml(ch)}</text>`;
+        }).join("");
+    }
+
+    function promoSealSvg(top, centre, id, color, size) {
+        const teeth = 48;
+        const edge = [];
+        for (let i = 0; i < teeth * 2; i += 1) {
+            const r = i % 2 ? 55.6 : 58.6;
+            const ang = (i * Math.PI) / teeth;
+            edge.push(`${(60 + r * Math.cos(ang)).toFixed(2)},${(60 + r * Math.sin(ang)).toFixed(2)}`);
+        }
+        const year = TERM_TITLE_YEAR ? `ACADEMIC YEAR ${TERM_TITLE_YEAR}` : "";
+        const font = 'font-family="Times New Roman, Times, serif" font-weight="700" text-anchor="middle"';
+        // The ink is a soft blend of the school logo's colours (navy -> blue -> sky blue),
+        // drawn as one gradient across the whole seal so it stays subtle and consistent.
+        const gradId = `${id}Grad`;
+        color = `url(#${gradId})`;
+        return `<svg viewBox="0 0 120 120" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg" fill="${color}">
+                <defs><linearGradient id="${gradId}" gradientUnits="userSpaceOnUse" x1="8" y1="8" x2="112" y2="112">
+                    <stop offset="0" stop-color="#2b3a8f"/><stop offset="0.55" stop-color="#2f6fc0"/><stop offset="1" stop-color="#43a5e8"/>
+                </linearGradient></defs>
+                <polygon points="${edge.join(" ")}" fill="${color}" fill-opacity="0.10" stroke="${color}" stroke-width="1.4" stroke-linejoin="round"/>
+                <circle cx="60" cy="60" r="51" fill="none" stroke="${color}" stroke-width="2"/>
+                <circle cx="60" cy="60" r="33.5" fill="${color}" fill-opacity="0.08" stroke="${color}" stroke-width="1.4"/>
+                <circle cx="60" cy="60" r="31" fill="none" stroke="${color}" stroke-width="0.6"/>
+                ${sealArcText(top, 39, 9.5, 2.2, false, font)}
+                ${year ? sealArcText(year, 46.5, 6.6, 1.3, true, font) : ""}
+                ${sealStar(14.5, 60, 3.6)}${sealStar(105.5, 60, 3.6)}
+                ${sealStar(60, 43.5, 3.4)}
+                <text x="60" y="71" ${font} font-size="25">${escapeHtml(centre)}</text>
+                <line x1="45" y1="76" x2="75" y2="76" stroke="${color}" stroke-width="1"/>
+            </svg>`;
+    }
+
+    let promoSealCounter = 0;
+    function promotionBannerHtml(student) {
+        const info = promotionInfo(student);
+        if (!info) return "";
+        const id = `promoSeal${++promoSealCounter}`;
+        return `<div class="jsr-promo" role="img" aria-label="${escapeHtml(info.top)} ${escapeHtml(info.centre)}">
+            ${promoSealSvg(info.top, info.centre, id, "currentColor", 150)}
+        </div>`;
+    }
+
     function renderTerminalReport(student) {
         const groups = groupMarkRows(student);
         const periods = ["B.O.T.", "Mid", "EOT"];
@@ -699,7 +1304,10 @@
                         <div class="jsr-grp jsr-grp-left"><span>Teacher's Name:</span><b class="jsr-fill jsr-teacher">Tr. ${escapeHtml(student.class_teacher || "")}</b></div>
                         <div class="jsr-grp jsr-grp-right"><span>Signature:</span><span class="jsr-fill jsr-sig-fill">${teacherSig}</span></div>
                     </div>
-                    <div class="jsr-head-sig"><span class="jsr-sig-box jsr-sig-wide">${headSig}</span><p>HEADTEACHER'S SIGNATURE</p></div>
+                    <div class="jsr-sig-row${promotionInfo(student) ? ' jsr-sig-row-seal' : ''}">
+                        ${promotionBannerHtml(student)}
+                        <div class="jsr-head-sig"><span class="jsr-sig-box jsr-sig-wide">${headSig}</span><p>HEADTEACHER'S SIGNATURE</p></div>
+                    </div>
                 </div>
 
                 ${SCHOOL_INFO.motto ? `<p class="jsr-motto">“${escapeHtml(SCHOOL_INFO.motto)}”</p>` : ""}
@@ -1041,6 +1649,8 @@
         document.getElementById("reportDownloadBtn").addEventListener("click", () => {
             downloadReportPdf();
         });
+        const wordBtn = document.getElementById("reportWordBtn");
+        if (wordBtn) wordBtn.addEventListener("click", () => { downloadReportWord(); });
         // Re-render when the phone rotates or the window crosses the mobile breakpoint.
         let lastMobile = isMobileView();
         window.addEventListener("resize", () => {

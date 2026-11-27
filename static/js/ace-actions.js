@@ -238,6 +238,12 @@
         }
     }
 
+    // "Download as Word": editable .docx of the same report cards (see ace-word.js).
+    function downloadWord(pageNodes, filenameBase, button) {
+        if (!window.AceWord) { alert("The Word exporter is not loaded. Please refresh the page and try again."); return; }
+        return window.AceWord.download(pageNodes, filenameBase, button);
+    }
+
     function gradeBase() { return `ace-grade-${overlay ? overlay.dataset.grade : ""}`; }
     function reportSlug() { return (overlay && overlay.dataset.reportSlug) || "end-of-term"; }
 
@@ -248,6 +254,9 @@
 
         const downloadAll = event.target.closest("[data-ace-download-all]");
         if (downloadAll) { downloadPdf(pages(), `${gradeBase()}-${reportSlug()}`, downloadAll); return; }
+
+        const wordAll = event.target.closest("[data-ace-word-all]");
+        if (wordAll) { downloadWord(pages(), `${gradeBase()}-${reportSlug()}`, wordAll); return; }
 
         const studentBtn = event.target.closest(".report-student-item");
         if (studentBtn && overlay && overlay.contains(studentBtn)) {
@@ -276,6 +285,19 @@
                 downloadPdf(page ? [page] : [], `${gradeBase()}-${slug(page && page.dataset.studentName)}`, button);
             }
         });
+
+        const wordBtn = document.getElementById("aceWordBtn");
+        if (wordBtn) {
+            wordBtn.addEventListener("click", (event) => {
+                const button = event.currentTarget;
+                if (previewMode === "all" || isMobileView()) {
+                    downloadWord(pages(), `${gradeBase()}-${reportSlug()}`, button);
+                } else {
+                    const page = pageFor(activeStudentId);
+                    downloadWord(page ? [page] : [], `${gradeBase()}-${slug(page && page.dataset.studentName)}`, button);
+                }
+            });
+        }
 
         let lastMobile = isMobileView();
         window.addEventListener("resize", () => {

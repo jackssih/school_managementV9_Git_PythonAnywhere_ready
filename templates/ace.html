@@ -465,6 +465,7 @@
               <td class="col-action"><div class="row-actions">
                 <button type="button" class="icon-btn" title="View" data-ace-preview><i class="ti ti-eye"></i></button>
                 <button type="button" class="icon-btn" title="Download all (PDF)" data-ace-download-all><i class="ti ti-download"></i></button>
+                <button type="button" class="icon-btn" title="Download all as Word document (.docx)" data-ace-word-all><i class="ti ti-file-text"></i></button>
               </div></td>
             </tr>
           {% else %}
@@ -505,6 +506,7 @@
             <div class="report-document-actions">
               <span id="acePageCount">1 Page</span>
               <button type="button" class="icon-btn" id="aceDownloadBtn" title="Download"><i class="ti ti-download"></i><span class="report-download-label">Download</span></button>
+              <button type="button" class="icon-btn" id="aceWordBtn" title="Download as Word document (.docx)"><i class="ti ti-file-text"></i><span class="report-download-label">Word</span></button>
             </div>
             <div class="report-document" id="aceDocument"></div>
           </section>
@@ -540,7 +542,8 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lobster+Two:wght@700&display=swap">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="{{ url_for('static', filename='js/ace-actions.js') }}?v=2"></script>
+  <script src="{{ url_for('static', filename='js/ace-word.js') }}?v=1"></script>
+  <script src="{{ url_for('static', filename='js/ace-actions.js') }}?v=3"></script>
   {% if active_tab == 'attendance' and selected_class %}
     <script src="{{ url_for('static', filename='js/date-picker.js') }}"></script>
     <script>

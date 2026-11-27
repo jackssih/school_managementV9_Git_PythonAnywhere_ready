@@ -5403,7 +5403,8 @@ table thead th:last-child,
 .jsr-page .jsr-promo svg { display: block; }
 
 /* Page count stays left; the PDF and Word buttons sit together on the right. */
-.report-document-actions #reportPageCount { margin-right: auto; }
+.report-document-actions #reportPageCount,
+.report-document-actions #acePageCount { margin-right: auto; }
 
 /* Head teacher's signature: shorter line, centred on the page. When a promotion
    seal is present it sits to the RIGHT of the signature and overlaps the end of

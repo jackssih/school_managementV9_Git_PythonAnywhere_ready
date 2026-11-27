@@ -55,6 +55,9 @@
                 <i class="ti ti-refresh"></i> Undo last promotion
             </button>
             {% endif %}
+            <button type="button" class="secondary-btn" onclick="openManualPromotion()">
+                <i class="ti ti-user-up"></i> Promote manually
+            </button>
             <button type="button" class="primary-btn" onclick="openModal('promotionRunModal')">
                 <i class="ti ti-arrow-up-right"></i> Promote to next year
             </button>
@@ -445,13 +448,42 @@
                 (e.g. P.2 A → P.3 A), otherwise into the next plain class. Students marked
                 <strong>Repeating</strong> or <strong>Second sitting</strong> stay in their current class,
                 and <strong>Discontinued</strong> students are unenrolled. Primary 7 students being promoted
-                are marked as having completed primary school. This can be undone afterwards, in whole or
-                for a single student.
+                are marked as having completed primary school. Nursery classes follow Baby → Middle → Top → P.1.
+                <strong>ACE pupils are not moved here</strong> — promote them with <strong>Promote manually</strong>.
+                This can be undone afterwards, in whole or for a single student.
             </p>
             <form class="modal-form" action="{{ url_for('run_promotion') }}" method="post">
                 <div class="form-actions">
                     <button type="button" class="secondary-btn" onclick="closeModal('promotionRunModal')">Cancel</button>
                     <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Promote now</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="promotionManualModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <p class="form-heading">Promote manually</p>
+                <i class="ti ti-x modal-close" onclick="closeModal('promotionManualModal')"></i>
+            </div>
+            <p class="form-subheading">
+                Pick a class, tick the students to move, and choose the class to move them into.
+                Works for ACE grades, Primary and nursery classes. It can be undone afterwards.
+            </p>
+            <form class="modal-form" id="manualPromotionForm" action="{{ url_for('promote_students_manually') }}" method="post">
+                <label class="form-label" for="manualFromClass">From class</label>
+                <select class="form-input" id="manualFromClass"></select>
+                <label class="form-label" style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;">
+                    <span>Students</span>
+                    <label style="font-weight:normal;cursor:pointer;"><input type="checkbox" id="manualSelectAll"> Select all</label>
+                </label>
+                <div id="manualStudents" style="max-height:240px;overflow:auto;border:1px solid var(--border, #d9dee7);border-radius:8px;padding:6px 10px;"></div>
+                <label class="form-label" for="manualTargetClass" style="margin-top:12px;">Move to</label>
+                <select class="form-input" id="manualTargetClass" name="target_class_id" required></select>
+                <div class="form-actions">
+                    <button type="button" class="secondary-btn" onclick="closeModal('promotionManualModal')">Cancel</button>
+                    <button type="submit" class="primary-btn"><i class="ti ti-check"></i> Promote selected</button>
                 </div>
             </form>
         </div>
@@ -732,7 +764,9 @@
          data-promotion-url-base="/academics/promotion"
          data-promotion-records="{{ (records if active_tab == 'promotion' else [])|tojson|forceescape }}"
          data-promotion-actions="{{ promotion_actions|tojson|forceescape }}"
+         data-promotion-manual-records="{{ (manual_promotion_records if active_tab == 'promotion' else [])|tojson|forceescape }}"
+         data-promotion-manual-targets="{{ (manual_promotion_targets if active_tab == 'promotion' else [])|tojson|forceescape }}"
          hidden></div>
-    <script src="{{ url_for('static', filename='js/academics-actions.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/academics-actions.js') }}?v=2"></script>
     <script src="{{ url_for('static', filename='js/academics-bulk-enroll.js') }}"></script>
 {% endblock %}

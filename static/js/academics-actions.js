@@ -6,6 +6,9 @@
         const PROMOTION_URL_BASE = academicsConfig?.dataset.promotionUrlBase || "/academics/promotion";
         const PROMOTION_RECORDS = academicsConfig?.dataset.promotionRecords ? JSON.parse(academicsConfig.dataset.promotionRecords) : [];
         const PROMOTION_ACTIONS = academicsConfig?.dataset.promotionActions ? JSON.parse(academicsConfig.dataset.promotionActions) : [];
+        const MANUAL_RECORDS = academicsConfig?.dataset.promotionManualRecords ? JSON.parse(academicsConfig.dataset.promotionManualRecords) : [];
+        const MANUAL_TARGETS = academicsConfig?.dataset.promotionManualTargets ? JSON.parse(academicsConfig.dataset.promotionManualTargets) : [];
+        const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
         function setValue(id, value) {
             const element = document.getElementById(id);
             if (element) element.value = value || "";
@@ -134,6 +137,41 @@
             `).join("")
             : '<p class="form-subheading">No students are linked to this class yet.</p>';
         openModal("promotionModal");
+    };
+
+    // Manual promotion: choose a class, tick students, pick the class to move them into.
+    window.openManualPromotion = function () {
+        const from = document.getElementById("manualFromClass");
+        const target = document.getElementById("manualTargetClass");
+        const list = document.getElementById("manualStudents");
+        const selectAll = document.getElementById("manualSelectAll");
+        if (!from || !target || !list) return;
+
+        const optionsFor = (curriculum) => MANUAL_TARGETS.filter((t) => t.curriculum === curriculum)
+            .map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("");
+        const groups = [["Nursery & Primary classes", "Standard"], ["ACE grades", "ACE"]];
+        target.innerHTML = groups.map(([label, key]) => {
+            const html = optionsFor(key);
+            return html ? `<optgroup label="${label}">${html}</optgroup>` : "";
+        }).join("");
+
+        from.innerHTML = MANUAL_RECORDS.map((r) =>
+            `<option value="${r.id}">${escapeHtml(r.class_name)} (${(r.students || []).length})</option>`).join("");
+
+        const renderStudents = () => {
+            const record = MANUAL_RECORDS.find((r) => String(r.id) === from.value);
+            const students = (record && record.students) || [];
+            selectAll.checked = false;
+            list.innerHTML = students.length ? students.map((s) => `
+                <label style="display:flex;gap:8px;align-items:center;padding:4px 0;cursor:pointer;">
+                    <input type="checkbox" name="student_ids" value="${s.id}"> ${escapeHtml(s.name)}
+                </label>`).join("") : '<p class="form-subheading">No students are enrolled in this class.</p>';
+            if (record && record.next_class_id) target.value = String(record.next_class_id);
+        };
+        from.onchange = renderStudents;
+        selectAll.onchange = () => list.querySelectorAll('input[name="student_ids"]').forEach((box) => { box.checked = selectAll.checked; });
+        renderStudents();
+        openModal("promotionManualModal");
     };
 
     window.openPickedPromotion = function () {

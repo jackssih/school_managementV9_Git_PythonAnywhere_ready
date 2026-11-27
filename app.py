@@ -307,7 +307,7 @@ ADMIN_ONLY_ENDPOINTS = {
     "academics", "academic_subjects_class", "new_academic_class", "edit_academic_class", "delete_academic_class",
     "download_class_students", "new_subject", "edit_subject", "delete_subject",
     "new_enrollment", "edit_enrollment", "unenroll_students", "update_promotion_decisions",
-    "run_promotion", "undo_promotion", "undo_promotion_student",
+    "run_promotion", "undo_promotion", "undo_promotion_student", "promote_students_manually",
     "save_term_dates", "switch_term",
     # Whole-school scheduling
     "events", "new_event", "edit_event", "delete_event",
@@ -1632,7 +1632,11 @@ def enrollment_student_records(class_id):
 def promotion_records():
     decisions = {d.student_id: d.decision for d in PromotionDecision.query.all()}
     records = []
-    for class_record in all_academic_classes():
+    all_classes = all_academic_classes()
+    class_ids_by_name = {c["name"]: c["id"] for c in all_classes}
+    for class_record in all_classes:
+        suggestion = resolve_promotion_target(class_record["name"], list(class_ids_by_name))
+        next_class_id = class_ids_by_name.get(suggestion["class_name"]) if suggestion["outcome"] == "matched" else None
         class_students = get_class_students(class_record["name"])
         decision_counts = {"Promoted": 0, "Second sitting": 0, "Repeating": 0, "Discontinued": 0}
         for student in class_students:
@@ -1643,6 +1647,7 @@ def promotion_records():
             {
                 "id": class_record["id"],
                 "class_name": class_record["name"],
+                "next_class_id": next_class_id,
                 "all_students": len(class_students),
                 "students": students_payload(class_students),
                 "promoted": decision_counts["Promoted"],
@@ -1665,6 +1670,26 @@ def promotion_records():
 CLASS_LEVEL_STREAM_RE = re.compile(r"^\s*(?:primary|p)\.?\s*([1-7])\s*([a-z]*)\s*$", re.IGNORECASE)
 PROMOTION_STAY_DECISIONS = {"Repeating", "Second sitting"}
 PROMOTION_DEFAULT_DECISION = "Promoted"
+# ACE grades ("ACE Grade 3") and nursery classes (Baby -> Middle -> Top -> P.1)
+# follow their own progression.
+ACE_CLASS_RE = re.compile(r"^\s*ace\s*(?:grade\s*)?(\d{1,2})\s*$", re.IGNORECASE)
+NURSERY_CLASS_RE = re.compile(r"^\s*(baby|middle|top)(?:\s*class)?\s*$", re.IGNORECASE)
+NURSERY_ORDER = ["baby", "middle", "top"]
+
+
+def class_sort_key(class_name):
+    """Natural school order: Baby, Middle, Top, P.1 ... P.7, others, ACE 1 ... 12."""
+    name = class_name or ""
+    nursery = NURSERY_CLASS_RE.match(name)
+    if nursery:
+        return (0, NURSERY_ORDER.index(nursery.group(1).lower()), name.lower())
+    parsed = CLASS_LEVEL_STREAM_RE.match(name)
+    if parsed:
+        return (1, int(parsed.group(1)), name.lower())
+    ace = ACE_CLASS_RE.match(name)
+    if ace:
+        return (3, int(ace.group(1)), name.lower())
+    return (2, 0, name.lower())
 
 
 def parse_class_level_stream(class_name):
@@ -1696,7 +1721,29 @@ def resolve_promotion_target(current_class_name, class_names):
         into), or "ambiguous_stream" (more than one stream exists at the
         next level and none of them, nor a single plain class, matches).
     """
-    parsed = parse_class_level_stream(current_class_name)
+    ace = ACE_CLASS_RE.match(current_class_name or "")
+    if ace:
+        grade = int(ace.group(1))
+        if grade >= 12:
+            return {"outcome": "final_year", "class_name": None, "reason": None}
+        for name in class_names:
+            match = ACE_CLASS_RE.match(name)
+            if match and int(match.group(1)) == grade + 1:
+                return {"outcome": "matched", "class_name": name, "reason": None}
+        return {"outcome": "unresolved", "class_name": None, "reason": "no_next_class"}
+
+    nursery = NURSERY_CLASS_RE.match(current_class_name or "")
+    if nursery:
+        rank = NURSERY_ORDER.index(nursery.group(1).lower())
+        if rank < len(NURSERY_ORDER) - 1:
+            for name in class_names:
+                match = NURSERY_CLASS_RE.match(name)
+                if match and NURSERY_ORDER.index(match.group(1).lower()) == rank + 1:
+                    return {"outcome": "matched", "class_name": name, "reason": None}
+            return {"outcome": "unresolved", "class_name": None, "reason": "no_next_class"}
+        parsed = (0, "")  # Top class moves into Primary 1
+    else:
+        parsed = parse_class_level_stream(current_class_name)
     if parsed is None:
         return {"outcome": "unresolved", "class_name": None, "reason": "not_primary_class"}
     level, stream = parsed
@@ -4303,11 +4350,18 @@ def academics():
             "enrollment_detail": False,
         })
     elif tab == "promotion":
+        ensure_ace_grades()
         records = promotion_records()
+        # Full list (before search/paging) feeds the manual-promotion dialog.
+        manual_records = sorted(records, key=lambda r: class_sort_key(r["class_name"]))
+        manual_targets = [
+            {"id": r["id"], "name": r["class_name"], "curriculum": "ACE" if ACE_CLASS_RE.match(r["class_name"]) else "Standard"}
+            for r in manual_records
+        ]
         if search_query:
             query = search_query.lower()
             records = [r for r in records if query in r["class_name"].lower()]
-        records.sort(key=lambda r: r["class_name"].lower())
+        records.sort(key=lambda r: class_sort_key(r["class_name"]))
         total_count = len(records)
         page_records, pagination = paginate(records)
         context.update({
@@ -4317,6 +4371,11 @@ def academics():
             "singular_label": "Promotion",
             "plural_label": "Promotions",
             "latest_promotion_run": promotion_run_summary(latest_promotion_run()),
+            "manual_promotion_records": [
+                {"id": r["id"], "class_name": r["class_name"], "next_class_id": r["next_class_id"], "students": r["students"]}
+                for r in manual_records
+            ],
+            "manual_promotion_targets": manual_targets,
         })
     else:
         records = standard_academic_class_records()
@@ -4751,9 +4810,17 @@ def run_promotion():
     """
     class_names = [c["name"] for c in all_academic_classes()]
     decisions = {d.student_id: d.decision for d in PromotionDecision.query.all()}
-    students = Student.query.filter(Student.current_class_name != "").order_by(Student.name).all()
+    all_enrolled = Student.query.filter(Student.current_class_name != "").order_by(Student.name).all()
+    # ACE pupils move at their own pace (PACE by PACE), so they are promoted
+    # manually from the "Promote manually" button, not in the year-end sweep.
+    _, ace_names = ace_class_lookup()
+    students = [s for s in all_enrolled if s.current_class_name not in ace_names]
+    ace_left_alone = len(all_enrolled) - len(students)
 
     if not students:
+        if ace_left_alone:
+            return promotion_json_or_redirect(
+                "Only ACE pupils are enrolled, and they are promoted manually. Use \"Promote manually\".", "error")
         return promotion_json_or_redirect("There are no enrolled students to promote.", "error")
 
     run = PromotionRun(run_date=date.today(), label=f"Promotion — {date.today().strftime('%d %b %Y')}")
@@ -4817,6 +4884,8 @@ def run_promotion():
     if counts["Unresolved"]:
         parts.append(f"{counts['Unresolved']} left in place, needing manual placement")
     message = "Promotion applied: " + ", ".join(parts) + "."
+    if ace_left_alone:
+        message += f" {ace_left_alone} ACE pupil(s) were not moved — promote them with \"Promote manually\"."
 
     if no_next_class_names:
         message += (
@@ -4831,6 +4900,58 @@ def run_promotion():
 
     category = "error" if (no_next_class_names or ambiguous_class_names) and not counts["Moved"] else "success"
     return promotion_json_or_redirect(message, category)
+
+
+@app.route("/academics/promotion/manual", methods=["POST"])
+def promote_students_manually():
+    """Move chosen students into a chosen class (ACE grade or Primary/nursery
+    class). Recorded as a PromotionRun so it can be undone, in whole or for a
+    single student, exactly like the year-end promotion."""
+    target_id = request.form.get("target_class_id", type=int)
+    student_ids = [int(v) for v in request.form.getlist("student_ids") if v.isdigit()]
+    target = db.session.get(AcademicClass, target_id) if target_id else None
+    if target is None or not student_ids:
+        return promotion_json_or_redirect("Choose the students to promote and the class to move them into.", "error")
+
+    classes_by_name = {c.name: c for c in AcademicClass.query.all()}
+    students = (
+        Student.query.filter(Student.id.in_(student_ids), Student.current_class_name != "")
+        .order_by(Student.name).all()
+    )
+    run = None
+    moved = already_there = wrong_curriculum = 0
+    for student in students:
+        source = classes_by_name.get(student.current_class_name)
+        if student.current_class_name == target.name:
+            already_there += 1
+            continue
+        # ACE and Primary are separate programmes: a pupil can't be in both.
+        if source is not None and (source.curriculum == "ACE") != (target.curriculum == "ACE"):
+            wrong_curriculum += 1
+            continue
+        if run is None:
+            run = PromotionRun(run_date=date.today(), label=f"Manual promotion — {date.today().strftime('%d %b %Y')}")
+            db.session.add(run)
+            db.session.flush()
+        db.session.add(PromotionRunEntry(
+            run_id=run.id, student_id=student.id, decision=PROMOTION_DEFAULT_DECISION,
+            from_class_name=student.current_class_name, to_class_name=target.name, outcome="Moved",
+        ))
+        student.current_class_name = target.name
+        moved += 1
+    db.session.commit()
+
+    if not moved:
+        reason = "They are already in that class." if already_there else (
+            "ACE pupils can only move to ACE grades, and Primary pupils to Primary classes."
+            if wrong_curriculum else "No enrolled students were selected.")
+        return promotion_json_or_redirect(f"No one was moved. {reason}", "error")
+    message = f"{moved} student(s) promoted to {target.name}."
+    if already_there:
+        message += f" {already_there} already in that class."
+    if wrong_curriculum:
+        message += f" {wrong_curriculum} skipped (ACE and Primary can't be mixed)."
+    return promotion_json_or_redirect(message, "success")
 
 
 def _revert_promotion_entry(entry):
